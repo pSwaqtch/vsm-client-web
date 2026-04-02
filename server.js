@@ -2,6 +2,7 @@ const http = require('node:http');
 const fs = require('node:fs');
 const path = require('node:path');
 
+const { createBackendServer } = require('./backend.js');
 const { prepareSite, SITE_DIR } = require('./prepare.js');
 
 const MIME_TYPES = {
@@ -25,8 +26,9 @@ function sendFile(response, filePath) {
   response.end(fs.readFileSync(filePath));
 }
 
-function createServer(port = 4173) {
+function createServer(port = 4173, backendPort = 2880) {
   prepareSite();
+  const backendServer = createBackendServer(backendPort);
 
   const server = http.createServer((request, response) => {
     const url = new URL(request.url, `http://${request.headers.host}`);
@@ -56,7 +58,7 @@ function createServer(port = 4173) {
     console.log(`Mac preview running at http://127.0.0.1:${port}`);
   });
 
-  return server;
+  return { backendServer, server };
 }
 
 if (require.main === module) {
