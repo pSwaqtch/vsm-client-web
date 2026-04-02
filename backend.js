@@ -16,8 +16,59 @@ async function readJsonBody(request) {
   try {
     return JSON.parse(rawBody);
   } catch (error) {
-    throw new Error('Invalid JSON request body');
+    const parsedLegacyBody = parseLegacyBody(rawBody);
+    if (parsedLegacyBody) {
+      return parsedLegacyBody;
+    }
+
+    const parseError = new Error('Invalid JSON request body');
+    parseError.rawBody = rawBody;
+    throw parseError;
   }
+}
+
+function coerceLegacyValue(value) {
+  if (value === 'true') return true;
+  if (value === 'false') return false;
+  return value;
+}
+
+function parseLegacyBody(rawBody) {
+  const params = new URLSearchParams(rawBody);
+  const entries = Array.from(params.entries());
+  if (entries.length === 0) {
+    return null;
+  }
+
+  if (params.has('params')) {
+    const wrappedParams = params.get('params');
+    if (wrappedParams) {
+      try {
+        const parsed = JSON.parse(wrappedParams);
+        if (parsed && typeof parsed === 'object') {
+          return parsed;
+        }
+      } catch (error) {}
+    }
+  }
+
+  const payload = {};
+  for (const [key, value] of entries) {
+    let normalizedKey = key;
+    const bracketMatch = key.match(/^params\[(.+)\]$/);
+
+    if (bracketMatch) {
+      normalizedKey = bracketMatch[1];
+    } else if (key.startsWith('params.')) {
+      normalizedKey = key.slice('params.'.length);
+    } else if (key === 'params') {
+      continue;
+    }
+
+    payload[normalizedKey] = coerceLegacyValue(value);
+  }
+
+  return Object.keys(payload).length > 0 ? payload : null;
 }
 
 function sendJson(response, statusCode, payload) {
@@ -51,6 +102,18 @@ function normalizeArgs(args) {
 function createBackendHandler() {
   const simState = createSimState();
   const DEFAULT_DEVICE = '7000';
+  const previewCfgByPath = new Map();
+  const debugState = {
+    cachedPreviewPaths: [],
+    lastPreviewStore: null,
+    lastLoadCfg: null,
+    lastError: null,
+  };
+  let lastPreviewCfg = null;
+
+  function refreshCachedPreviewPaths() {
+    debugState.cachedPreviewPaths = Array.from(previewCfgByPath.keys());
+  }
 
   async function ensureSelectedDevice() {
     if (!simState.getDevice()) {
@@ -72,8 +135,19 @@ function createBackendHandler() {
     async loadCfg(args) {
       await ensureSelectedDevice();
       const { fileContent, filePath } = normalizeArgs(args);
+      debugState.lastLoadCfg = {
+        filePath: filePath || null,
+        hasFileContent: typeof fileContent === 'string',
+        fileContentLength: typeof fileContent === 'string' ? fileContent.length : 0,
+      };
       if (typeof fileContent === 'string') {
         return simState.loadCfgContent(fileContent);
+      }
+      if (filePath && previewCfgByPath.has(filePath)) {
+        return simState.loadCfgContent(previewCfgByPath.get(filePath).fileContent);
+      }
+      if (lastPreviewCfg) {
+        return simState.loadCfgContent(lastPreviewCfg.fileContent);
       }
       if (filePath) {
         return simState.loadCfgContent(fs.readFileSync(filePath, 'utf8'));
@@ -81,10 +155,98 @@ function createBackendHandler() {
       throw new Error('fileContent or filePath is required');
     },
 
+    async cachePreviewCfg(args) {
+      const { fileContent, fileName, filePath } = normalizeArgs(args);
+      if (!filePath || typeof fileContent !== 'string') {
+        throw new Error('filePath and fileContent are required');
+      }
+      lastPreviewCfg = { fileContent, fileName, filePath };
+      previewCfgByPath.set(filePath, lastPreviewCfg);
+      debugState.lastPreviewStore = {
+        fileName: fileName || null,
+        filePath,
+        fileContentLength: fileContent.length,
+      };
+      refreshCachedPreviewPaths();
+      return true;
+    },
+
     async readRegister(args) {
       await ensureSelectedDevice();
       const { value } = normalizeArgs(args);
       return simState.readRegister(value);
+    },
+
+    async readSampleRate(args) {
+      await ensureSelectedDevice();
+      const { type, sillicon = simState.getDevice() || DEFAULT_DEVICE, slot = 'NA' } = normalizeArgs(args);
+      return simState.readSampleRate(type, sillicon, slot);
+    },
+
+    async readSlotEnable(args) {
+      await ensureSelectedDevice();
+      const { type } = normalizeArgs(args);
+      return simState.readSlotEnable(type);
+    },
+
+    async readPPGAFETrimVref(args) {
+      await ensureSelectedDevice();
+      const { slot } = normalizeArgs(args);
+      return simState.readPPGAFETrimVref(slot);
+    },
+
+    async readPPGAmbientCancellation(args) {
+      await ensureSelectedDevice();
+      const { slot } = normalizeArgs(args);
+      return simState.readPPGAmbientCancellation(slot);
+    },
+
+    async readDecimateFactor(args) {
+      await ensureSelectedDevice();
+      const { slot } = normalizeArgs(args);
+      return simState.readDecimateFactor(slot);
+    },
+
+    async readCHEnable(args) {
+      await ensureSelectedDevice();
+      const { slot } = normalizeArgs(args);
+      return simState.readCHEnable(slot);
+    },
+
+    async readTIAGain(args) {
+      await ensureSelectedDevice();
+      const { slot } = normalizeArgs(args);
+      return simState.readTIAGain(slot);
+    },
+
+    async readDACLEDDC(args) {
+      await ensureSelectedDevice();
+      const { slot, sillicon = simState.getDevice() || DEFAULT_DEVICE } = normalizeArgs(args);
+      return simState.readDACLEDDC(slot, sillicon);
+    },
+
+    async readOperationMode(args) {
+      await ensureSelectedDevice();
+      const { slot } = normalizeArgs(args);
+      return simState.readOperationMode(slot);
+    },
+
+    async readLedType(args) {
+      await ensureSelectedDevice();
+      const { slot } = normalizeArgs(args);
+      return simState.readLedType(slot);
+    },
+
+    async readLedCurrent(args) {
+      await ensureSelectedDevice();
+      const { slot, sillicon = simState.getDevice() || DEFAULT_DEVICE } = normalizeArgs(args);
+      return simState.readLedCurrent(slot, sillicon);
+    },
+
+    async populateDIMode(args) {
+      await ensureSelectedDevice();
+      const { slotName } = normalizeArgs(args);
+      return simState.populateDIMode(slotName);
     },
 
     async getVersion() {
@@ -110,6 +272,14 @@ function createBackendHandler() {
     async fileExists() {
       return false;
     },
+
+    async debugPreviewState() {
+      return JSON.parse(JSON.stringify(debugState));
+    },
+
+    setLastError(error) {
+      debugState.lastError = error;
+    },
   };
 }
 
@@ -119,13 +289,27 @@ function createBackendServer(port = 2880) {
     '/target/selectDevice': (body) => handler.selectDevice(body),
     '/target/reset': (body) => handler.reset(body),
     '/target/loadCfg': (body) => handler.loadCfg(body),
+    '/target/previewStoreCfg': (body) => handler.cachePreviewCfg(body),
     '/target/readRegister': (body) => handler.readRegister(body),
+    '/target/readSampleRate': (body) => handler.readSampleRate(body),
+    '/target/readSlotEnable': (body) => handler.readSlotEnable(body),
+    '/target/readPPGAFETrimVref': (body) => handler.readPPGAFETrimVref(body),
+    '/target/readPPGAmbientCancellation': (body) => handler.readPPGAmbientCancellation(body),
+    '/target/readDecimateFactor': (body) => handler.readDecimateFactor(body),
+    '/target/readCHEnable': (body) => handler.readCHEnable(body),
+    '/target/readTIAGain': (body) => handler.readTIAGain(body),
+    '/target/readDACLEDDC': (body) => handler.readDACLEDDC(body),
+    '/target/readOperationMode': (body) => handler.readOperationMode(body),
+    '/target/readLedType': (body) => handler.readLedType(body),
+    '/target/readLedCurrent': (body) => handler.readLedCurrent(body),
+    '/target/populateDIMode': (body) => handler.populateDIMode(body),
     '/target/getVersion': () => handler.getVersion(),
     '/target/getBoard': () => handler.getBoard(),
     '/target/getSillicon': () => handler.getSillicon(),
     '/target/list': () => handler.list(),
     '/target/connectionStatusCheck': () => handler.connectionStatusCheck(),
     '/target/fileExists': () => handler.fileExists(),
+    '/target/debugPreviewState': () => handler.debugPreviewState(),
   };
 
   const server = http.createServer(async (request, response) => {
@@ -152,6 +336,11 @@ function createBackendServer(port = 2880) {
       const payload = await route(body);
       sendJson(response, 200, payload);
     } catch (error) {
+      handler.setLastError({
+        path: url.pathname,
+        message: error.message || String(error),
+        rawBody: typeof error.rawBody === 'string' ? error.rawBody.slice(0, 500) : null,
+      });
       sendJson(response, 500, error.message || String(error));
     }
   });

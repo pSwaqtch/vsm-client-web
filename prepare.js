@@ -24,11 +24,7 @@ function injectShim(indexHtml) {
 function patchPreviewBundle(bundleSource) {
   return bundleSource
     .replace('l={loadStatus:!1}', 'l={loadStatus:!0}')
-    .replace('c={connectionStatus:!1}', 'c={connectionStatus:!0}')
-    .replace(
-      'O={device:"",dType:[],process:[]}',
-      'O={device:"7000",dType:["ecg","ppg","bioz","eda"],process:["ecg","cnibp","bioz","eda"]}',
-    );
+    .replace('c={connectionStatus:!1}', 'c={connectionStatus:!0}');
 }
 
 function prepareSite() {
