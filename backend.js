@@ -22,10 +22,23 @@ async function readJsonBody(request) {
 
 function sendJson(response, statusCode, payload) {
   response.writeHead(statusCode, {
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Methods': 'GET,POST,OPTIONS',
+    'Access-Control-Allow-Headers': 'content-type',
     'Content-Type': 'application/json; charset=utf-8',
     'Cache-Control': 'no-store',
   });
   response.end(JSON.stringify(payload));
+}
+
+function sendNoContent(response) {
+  response.writeHead(204, {
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Methods': 'GET,POST,OPTIONS',
+    'Access-Control-Allow-Headers': 'content-type',
+    'Cache-Control': 'no-store',
+  });
+  response.end();
 }
 
 function normalizeArgs(args) {
@@ -37,18 +50,27 @@ function normalizeArgs(args) {
 
 function createBackendHandler() {
   const simState = createSimState();
+  const DEFAULT_DEVICE = '7000';
+
+  async function ensureSelectedDevice() {
+    if (!simState.getDevice()) {
+      await simState.selectDevice(DEFAULT_DEVICE);
+    }
+  }
 
   return {
     async selectDevice(args) {
-      const { device = '7000' } = normalizeArgs(args);
+      const { device = DEFAULT_DEVICE } = normalizeArgs(args);
       return simState.selectDevice(device);
     },
 
     async reset() {
+      await ensureSelectedDevice();
       return simState.reset();
     },
 
     async loadCfg(args) {
+      await ensureSelectedDevice();
       const { fileContent, filePath } = normalizeArgs(args);
       if (typeof fileContent === 'string') {
         return simState.loadCfgContent(fileContent);
@@ -60,6 +82,7 @@ function createBackendHandler() {
     },
 
     async readRegister(args) {
+      await ensureSelectedDevice();
       const { value } = normalizeArgs(args);
       return simState.readRegister(value);
     },
@@ -73,7 +96,7 @@ function createBackendHandler() {
     },
 
     async getSillicon() {
-      return simState.getDevice() || '7000';
+      return simState.getDevice() || DEFAULT_DEVICE;
     },
 
     async list() {
@@ -108,6 +131,11 @@ function createBackendServer(port = 2880) {
   const server = http.createServer(async (request, response) => {
     const url = new URL(request.url, `http://${request.headers.host}`);
     const route = routes[url.pathname];
+
+    if (request.method === 'OPTIONS') {
+      sendNoContent(response);
+      return;
+    }
 
     if (!route) {
       sendJson(response, 404, 'Not found');

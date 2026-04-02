@@ -23,3 +23,11 @@ test('buildShimScript includes the preview file bridge for target/loadCfg', () =
   assert.match(script, /fileContent/);
   assert.match(script, /document\.addEventListener\('change'/);
 });
+
+test('buildShimScript patches FileReader reads so .dcfg files get a preview path and captured content', () => {
+  const script = buildShimScript();
+
+  assert.match(script, /FileReader\.prototype\.readAsText/);
+  assert.match(script, /Object\.defineProperty\(file,\s*'path'/);
+  assert.match(script, /captureSelectedDcfg\(file\)/);
+});
