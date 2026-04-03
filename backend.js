@@ -3,6 +3,7 @@ const http = require('node:http');
 const path = require('node:path');
 
 const { createSimState } = require('./lib/sim-state.js');
+const { createNativeSerialTransport } = require('./lib/native-serial.js');
 
 async function readJsonBody(request) {
   let rawBody = '';
@@ -100,8 +101,9 @@ function normalizeArgs(args) {
   return {};
 }
 
-function createBackendHandler() {
+function createBackendHandler(options = {}) {
   const simState = createSimState();
+  const transport = options.transport || createNativeSerialTransport();
   const DEFAULT_DEVICE = '7000';
   const previewCfgByPath = new Map();
   const debugState = {
@@ -122,6 +124,17 @@ function createBackendHandler() {
     }
   }
 
+  function shouldUseHardware(args) {
+    const normalized = normalizeArgs(args);
+    return normalized.sim !== true && transport.isOpen();
+  }
+
+  async function syncSelectedDeviceFromHardware() {
+    const sillicon = await transport.getSillicon();
+    await simState.selectDevice(sillicon);
+    return sillicon;
+  }
+
   return {
     async selectDevice(args) {
       const { device = DEFAULT_DEVICE } = normalizeArgs(args);
@@ -130,6 +143,11 @@ function createBackendHandler() {
 
     async reset() {
       await ensureSelectedDevice();
+      if (shouldUseHardware()) {
+        const result = await transport.reset();
+        await simState.reset();
+        return result;
+      }
       return simState.reset();
     },
 
@@ -142,16 +160,30 @@ function createBackendHandler() {
         fileContentLength: typeof fileContent === 'string' ? fileContent.length : 0,
       };
       if (typeof fileContent === 'string') {
+        if (shouldUseHardware(args)) {
+          await transport.loadCfgContent(fileContent);
+        }
         return simState.loadCfgContent(fileContent);
       }
       if (filePath && previewCfgByPath.has(filePath)) {
-        return simState.loadCfgContent(previewCfgByPath.get(filePath).fileContent);
+        const cachedContent = previewCfgByPath.get(filePath).fileContent;
+        if (shouldUseHardware(args)) {
+          await transport.loadCfgContent(cachedContent);
+        }
+        return simState.loadCfgContent(cachedContent);
       }
       if (lastPreviewCfg) {
+        if (shouldUseHardware(args)) {
+          await transport.loadCfgContent(lastPreviewCfg.fileContent);
+        }
         return simState.loadCfgContent(lastPreviewCfg.fileContent);
       }
       if (filePath) {
-        return simState.loadCfgContent(fs.readFileSync(filePath, 'utf8'));
+        const diskContent = fs.readFileSync(filePath, 'utf8');
+        if (shouldUseHardware(args)) {
+          await transport.loadCfgContent(diskContent);
+        }
+        return simState.loadCfgContent(diskContent);
       }
       throw new Error('fileContent or filePath is required');
     },
@@ -175,12 +207,20 @@ function createBackendHandler() {
     async readRegister(args) {
       await ensureSelectedDevice();
       const { value } = normalizeArgs(args);
+      if (shouldUseHardware(args)) {
+        return transport.readRegister(value);
+      }
       return simState.readRegister(value);
     },
 
     async writeRegister(args) {
       await ensureSelectedDevice();
       const { value } = normalizeArgs(args);
+      if (shouldUseHardware(args)) {
+        const result = await transport.writeRegister(value);
+        await simState.writeRegisterValue(value);
+        return result;
+      }
       return simState.writeRegisterValue(value);
     },
 
@@ -364,23 +404,47 @@ function createBackendHandler() {
     },
 
     async getVersion() {
+      if (transport.isOpen()) {
+        return transport.getVersion();
+      }
       return 'preview';
     },
 
     async getBoard() {
+      if (transport.isOpen()) {
+        return transport.getBoard();
+      }
       return 'preview-board';
     },
 
     async getSillicon() {
+      if (transport.isOpen()) {
+        return syncSelectedDeviceFromHardware();
+      }
       return simState.getDevice() || DEFAULT_DEVICE;
     },
 
     async list() {
-      return [];
+      return transport.list();
+    },
+
+    async init(args) {
+      const { port } = normalizeArgs(args);
+      return transport.init(port);
+    },
+
+    async open() {
+      const result = await transport.open();
+      await syncSelectedDeviceFromHardware().catch(() => ensureSelectedDevice());
+      return result;
+    },
+
+    async close() {
+      return transport.close();
     },
 
     async connectionStatusCheck() {
-      return false;
+      return transport.connectionStatusCheck();
     },
 
     async fileExists() {
@@ -400,6 +464,9 @@ function createBackendHandler() {
 function createBackendServer(port = 2880) {
   const handler = createBackendHandler();
   const routes = {
+    '/target/init': (body) => handler.init(body),
+    '/target/open': (body) => handler.open(body),
+    '/target/close': (body) => handler.close(body),
     '/target/selectDevice': (body) => handler.selectDevice(body),
     '/target/reset': (body) => handler.reset(body),
     '/target/loadCfg': (body) => handler.loadCfg(body),

@@ -3,16 +3,15 @@ const assert = require('node:assert/strict');
 
 const { buildShimScript, mockResponseFor } = require('../lib/mock-api.js');
 
-test('mockResponseFor returns an empty port list for /target/list', () => {
-  const response = mockResponseFor('/target/list', 'GET');
-
-  assert.deepEqual(response.body, []);
-});
-
-test('mockResponseFor returns startup device metadata for the connect flow', () => {
-  assert.equal(mockResponseFor('/target/getVersion', 'POST').body, 'preview');
-  assert.equal(mockResponseFor('/target/getBoard', 'POST').body, 'preview-board');
-  assert.equal(mockResponseFor('/target/getSillicon', 'POST').body, '7000');
+test('mockResponseFor lets connection routes reach the backend', () => {
+  assert.equal(mockResponseFor('/target/list', 'GET'), null);
+  assert.equal(mockResponseFor('/target/init', 'POST'), null);
+  assert.equal(mockResponseFor('/target/open', 'POST'), null);
+  assert.equal(mockResponseFor('/target/close', 'POST'), null);
+  assert.equal(mockResponseFor('/target/connectionStatusCheck', 'POST'), null);
+  assert.equal(mockResponseFor('/target/getVersion', 'POST'), null);
+  assert.equal(mockResponseFor('/target/getBoard', 'POST'), null);
+  assert.equal(mockResponseFor('/target/getSillicon', 'POST'), null);
 });
 
 test('mockResponseFor lets PPG config populate routes reach the backend', () => {
@@ -84,6 +83,11 @@ test('buildShimScript passthroughs the PPG populate endpoints', () => {
 test('buildShimScript passthroughs the PPG write and export endpoints', () => {
   const script = buildShimScript();
 
+  assert.match(script, /\/target\/list/);
+  assert.match(script, /\/target\/init/);
+  assert.match(script, /\/target\/open/);
+  assert.match(script, /\/target\/close/);
+  assert.match(script, /\/target\/connectionStatusCheck/);
   assert.match(script, /\/target\/writeSlotEnable/);
   assert.match(script, /\/target\/writeCHEnable/);
   assert.match(script, /\/target\/writeTIAGain/);

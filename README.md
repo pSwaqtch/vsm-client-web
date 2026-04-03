@@ -18,5 +18,6 @@ http://127.0.0.1:4173
 
 - This does not use Electron.
 - This does not start the packaged backend.
-- `/target/*` requests are intercepted in-browser and answered locally so the UI shell can boot.
-- Hardware, serial, DLL, and processing features are not expected to work.
+- The preview still keeps a sim-backed config path for safe browser boot and offline work.
+- Connection routes now pass through to the local preview backend, which can list and open macOS serial ports via `/dev/cu.*` without Electron.
+- Higher-level hardware features are still partial. Real serial is intended for connection, metadata, register I/O, and cfg load flows first.

@@ -30,6 +30,45 @@ test('backend metadata endpoints expose preview defaults', async () => {
   assert.equal(await handler.getSillicon(), '7000');
 });
 
+test('backend connection routes delegate to a real transport when provided', async () => {
+  const calls = [];
+  const transport = {
+    isOpen: () => true,
+    list: async () => [{ path: '/dev/cu.usbmodem-preview', serialNumber: '', pnpId: '', manufacturer: 'macOS serial' }],
+    init: async (port) => {
+      calls.push(['init', port]);
+      return true;
+    },
+    open: async () => {
+      calls.push(['open']);
+      return true;
+    },
+    close: async () => {
+      calls.push(['close']);
+      return true;
+    },
+    connectionStatusCheck: async () => true,
+    getVersion: async () => 'fw-1.2.3',
+    getBoard: async () => 'board-x',
+    getSillicon: async () => '7000',
+  };
+  const handler = createBackendHandler({ transport });
+
+  assert.deepEqual(await handler.list(), [{ path: '/dev/cu.usbmodem-preview', serialNumber: '', pnpId: '', manufacturer: 'macOS serial' }]);
+  assert.equal(await handler.init({ port: '/dev/cu.usbmodem-preview' }), true);
+  assert.equal(await handler.open(), true);
+  assert.equal(await handler.connectionStatusCheck(), true);
+  assert.equal(await handler.getVersion(), 'fw-1.2.3');
+  assert.equal(await handler.getBoard(), 'board-x');
+  assert.equal(await handler.getSillicon(), '7000');
+  assert.equal(await handler.close(), true);
+  assert.deepEqual(calls, [
+    ['init', '/dev/cu.usbmodem-preview'],
+    ['open'],
+    ['close'],
+  ]);
+});
+
 test('backend reset works before explicit device selection so welcome-screen loadCfg can proceed', async () => {
   const handler = createBackendHandler();
 
@@ -38,6 +77,45 @@ test('backend reset works before explicit device selection so welcome-screen loa
 
   assert.equal(await handler.getSillicon(), '7000');
   assert.equal(await handler.readRegister({ value: '0010', sim: true }), '00aa');
+});
+
+test('backend keeps sim state while delegating core register operations to hardware transport', async () => {
+  const calls = [];
+  const transport = {
+    isOpen: () => true,
+    reset: async () => {
+      calls.push(['reset']);
+      return true;
+    },
+    loadCfgContent: async (content) => {
+      calls.push(['loadCfgContent', content]);
+      return 'success';
+    },
+    readRegister: async (value) => {
+      calls.push(['readRegister', value]);
+      return 'beef';
+    },
+    writeRegister: async (value) => {
+      calls.push(['writeRegister', value]);
+      return '0x0010 0x00bb';
+    },
+    getSillicon: async () => '7000',
+    getVersion: async () => 'fw',
+    getBoard: async () => 'board',
+  };
+  const handler = createBackendHandler({ transport });
+
+  assert.equal(await handler.reset(), true);
+  assert.equal(await handler.loadCfg({ fileContent: '0010 00aa\n' }), 'success');
+  assert.equal(await handler.readRegister({ value: '0010' }), 'beef');
+  assert.equal(await handler.writeRegister({ value: '0010 00bb' }), '0x0010 0x00bb');
+  assert.equal(await handler.readRegister({ value: '0010', sim: true }), '00bb');
+  assert.deepEqual(calls, [
+    ['reset'],
+    ['loadCfgContent', '0010 00aa\n'],
+    ['readRegister', '0010'],
+    ['writeRegister', '0010 00bb'],
+  ]);
 });
 
 test('backend loadCfg accepts a cached preview file selected in the browser', async () => {
