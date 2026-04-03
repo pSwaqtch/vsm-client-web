@@ -101,6 +101,30 @@ function normalizeArgs(args) {
   return {};
 }
 
+function createEmptyPlotPayload() {
+  return {
+    ecg: { data: [], ecgStatus: '' },
+    ecg_filter: { data: [], ecgStatus: '' },
+    ecg_python: { data: [] },
+    ppg: { data: [] },
+    ppg_filter: { data: [] },
+    ppg_spo2: { data: [] },
+    ppg_test: { data: [] },
+    ppg_python: { data: [] },
+    ppg_imu_a: { data: [] },
+    ppg_imu_g: { data: [] },
+    ppg_hrm: { data: [] },
+    bioz_mag: { data: [] },
+    bioz_phase: { data: [] },
+    bioz_ci1: { data: [] },
+    bioz_ci2: { data: [] },
+    bioz_ci3: { data: [] },
+    bioz_ci4: { data: [] },
+    eda_mag: { data: [] },
+    eda_phase: { data: [] },
+  };
+}
+
 function createBackendHandler(options = {}) {
   const simState = createSimState();
   const transport = options.transport || createNativeSerialTransport();
@@ -113,6 +137,8 @@ function createBackendHandler(options = {}) {
     lastError: null,
   };
   let lastPreviewCfg = null;
+  let plotActive = false;
+  let exportActive = false;
 
   function refreshCachedPreviewPaths() {
     debugState.cachedPreviewPaths = Array.from(previewCfgByPath.keys());
@@ -399,6 +425,39 @@ function createBackendHandler(options = {}) {
       return `Success to write dcfg file in ${path.resolve(filePath)}`;
     },
 
+    async startPlot(args) {
+      plotActive = true;
+      return normalizeArgs(args).value || true;
+    },
+
+    async startPlotReceive() {
+      return createEmptyPlotPayload();
+    },
+
+    async stopPlot() {
+      plotActive = false;
+      return true;
+    },
+
+    async startExportData() {
+      exportActive = true;
+      return 'Success to start export data.';
+    },
+
+    async stopExportData() {
+      exportActive = false;
+      return [];
+    },
+
+    async ppgFullScale() {
+      return [];
+    },
+
+    async ppgSmoothProcess(args) {
+      const { data = [] } = normalizeArgs(args);
+      return { data };
+    },
+
     async previewCommandLog() {
       return simState.getPreviewCommandLog();
     },
@@ -452,7 +511,11 @@ function createBackendHandler(options = {}) {
     },
 
     async debugPreviewState() {
-      return JSON.parse(JSON.stringify(debugState));
+      return JSON.parse(JSON.stringify({
+        ...debugState,
+        plotActive,
+        exportActive,
+      }));
     },
 
     setLastError(error) {
@@ -503,6 +566,13 @@ function createBackendServer(port = 2880) {
     '/target/AGCSlotLED': (body) => handler.AGCSlotLED(body),
     '/target/AGCSlotChannel': (body) => handler.AGCSlotChannel(body),
     '/target/exportCfg': (body) => handler.exportCfg(body),
+    '/target/startPlot': (body) => handler.startPlot(body),
+    '/target/startPlotReceive': (body) => handler.startPlotReceive(body),
+    '/target/stopPlot': (body) => handler.stopPlot(body),
+    '/target/startExportData': (body) => handler.startExportData(body),
+    '/target/stopExportData': (body) => handler.stopExportData(body),
+    '/target/ppgFullScale': (body) => handler.ppgFullScale(body),
+    '/target/ppgSmoothProcess': (body) => handler.ppgSmoothProcess(body),
     '/target/previewCommandLog': () => handler.previewCommandLog(),
     '/target/getVersion': () => handler.getVersion(),
     '/target/getBoard': () => handler.getBoard(),

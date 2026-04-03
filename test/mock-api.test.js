@@ -49,6 +49,13 @@ test('mockResponseFor lets PPG config write and export routes reach the backend'
   assert.equal(mockResponseFor('/target/AGCSlotLED', 'POST'), null);
   assert.equal(mockResponseFor('/target/AGCSlotChannel', 'POST'), null);
   assert.equal(mockResponseFor('/target/exportCfg', 'POST'), null);
+  assert.equal(mockResponseFor('/target/startPlot', 'POST'), null);
+  assert.equal(mockResponseFor('/target/startPlotReceive', 'POST'), null);
+  assert.equal(mockResponseFor('/target/stopPlot', 'POST'), null);
+  assert.equal(mockResponseFor('/target/startExportData', 'POST'), null);
+  assert.equal(mockResponseFor('/target/stopExportData', 'POST'), null);
+  assert.equal(mockResponseFor('/target/ppgFullScale', 'POST'), null);
+  assert.equal(mockResponseFor('/target/ppgSmoothProcess', 'POST'), null);
   assert.equal(mockResponseFor('/target/previewCommandLog', 'GET'), null);
 });
 
@@ -94,5 +101,12 @@ test('buildShimScript passthroughs the PPG write and export endpoints', () => {
   assert.match(script, /\/target\/writeLedCurrent/);
   assert.match(script, /\/target\/AGCSlotOnOff/);
   assert.match(script, /\/target\/exportCfg/);
+  assert.match(script, /\/target\/startPlot/);
+  assert.match(script, /\/target\/startPlotReceive/);
+  assert.match(script, /\/target\/stopPlot/);
+  assert.match(script, /\/target\/startExportData/);
+  assert.match(script, /\/target\/stopExportData/);
+  assert.match(script, /\/target\/ppgFullScale/);
+  assert.match(script, /\/target\/ppgSmoothProcess/);
   assert.match(script, /\/target\/previewCommandLog/);
 });

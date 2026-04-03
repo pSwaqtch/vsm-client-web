@@ -317,6 +317,52 @@ test('backend AGC controls track preview state', async () => {
   assert.equal(await handler.AGCSlotChannel({ slotNumber: 'A', data: 7, channel: 'Channel2' }), 15);
 });
 
+test('backend plot routes return the frontend-compatible empty payload shape', async () => {
+  const handler = createBackendHandler();
+
+  assert.equal(await handler.startPlot({ value: 'fifo start' }), 'fifo start');
+
+  const payload = await handler.startPlotReceive({
+    type: ['ppg'],
+    slotList: ['slotA-Channel1'],
+    sillicon: '7000',
+  });
+
+  assert.deepEqual(Object.keys(payload), [
+    'ecg',
+    'ecg_filter',
+    'ecg_python',
+    'ppg',
+    'ppg_filter',
+    'ppg_spo2',
+    'ppg_test',
+    'ppg_python',
+    'ppg_imu_a',
+    'ppg_imu_g',
+    'ppg_hrm',
+    'bioz_mag',
+    'bioz_phase',
+    'bioz_ci1',
+    'bioz_ci2',
+    'bioz_ci3',
+    'bioz_ci4',
+    'eda_mag',
+    'eda_phase',
+  ]);
+  assert.deepEqual(payload.ppg, { data: [] });
+  assert.deepEqual(payload.ppg_filter, { data: [] });
+  assert.deepEqual(payload.ppg_hrm, { data: [] });
+  assert.equal(await handler.stopPlot({}), true);
+  assert.equal(await handler.startExportData({}), 'Success to start export data.');
+  assert.deepEqual(await handler.stopExportData({}), []);
+  assert.deepEqual(await handler.ppgFullScale({}), []);
+  assert.deepEqual(await handler.ppgSmoothProcess({ data: [{ slotA: 1 }] }), { data: [{ slotA: 1 }] });
+
+  const debugState = await handler.debugPreviewState();
+  assert.equal(debugState.plotActive, false);
+  assert.equal(debugState.exportActive, false);
+});
+
 test('backend exportCfg writes a dcfg file from current sim state', async () => {
   const handler = createBackendHandler();
   let filePath = '';
