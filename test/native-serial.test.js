@@ -72,3 +72,37 @@ test('native serial transport resolves uppercased frontend port paths to real ma
 
   assert.equal(resolved, '/dev/cu.usbmodem204435354e321');
 });
+
+test('native serial transport reset succeeds after writing sw_reset even without a response line', async () => {
+  const writes = [];
+  const readStream = {
+    on() {},
+    destroy() {},
+  };
+  const fileHandle = {
+    createReadStream() {
+      return readStream;
+    },
+    async write(value) {
+      writes.push(value);
+    },
+    async close() {},
+  };
+
+  const transport = createNativeSerialTransport({
+    devRoot: '/dev',
+    fsModule: {
+      promises: {
+        readdir: async () => ['cu.usbmodem123'],
+      },
+    },
+    execFile: async () => {},
+    openFile: async () => fileHandle,
+  });
+
+  await transport.init('/DEV/CU.USBMODEM123');
+  await transport.open();
+
+  assert.equal(await transport.reset(), true);
+  assert.deepEqual(writes, ['sw_reset\r']);
+});
