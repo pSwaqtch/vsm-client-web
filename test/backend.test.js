@@ -349,9 +349,20 @@ test('backend plot routes return the frontend-compatible empty payload shape', a
     'eda_mag',
     'eda_phase',
   ]);
-  assert.deepEqual(payload.ppg, { data: [] });
-  assert.deepEqual(payload.ppg_filter, { data: [] });
-  assert.deepEqual(payload.ppg_hrm, { data: [] });
+  assert.equal(payload.ppg.data.length > 0, true);
+  assert.equal(payload.ppg_filter.data.length > 0, true);
+  assert.equal(payload.ppg_hrm.data.length > 0, true);
+  assert.equal(typeof payload.ppg.data[0]['slotA-Channel1'], 'number');
+  assert.equal(typeof payload.ppg_filter.data[0]['slotA-Channel1'], 'number');
+  assert.equal(typeof payload.ppg_hrm.data[0]['slotA-Channel1'], 'number');
+
+  const nextPayload = await handler.startPlotReceive({
+    type: ['ppg'],
+    slotList: ['slotA-Channel1'],
+    sillicon: '7000',
+  });
+  assert.equal(nextPayload.ppg.data[0].ts > payload.ppg.data[payload.ppg.data.length - 1].ts, true);
+
   assert.equal(await handler.stopPlot({}), true);
   assert.equal(await handler.startExportData({}), 'Success to start export data.');
   assert.deepEqual(await handler.stopExportData({}), []);

@@ -125,6 +125,43 @@ function createEmptyPlotPayload() {
   };
 }
 
+function createSyntheticPpgPayload(slotList = [], startTick = 0, pointCount = 96) {
+  const payload = createEmptyPlotPayload();
+  const slots = Array.isArray(slotList) && slotList.length ? slotList : ['slotA-Channel1'];
+  const ppgData = [];
+  const ppgFilterData = [];
+  const hrmData = [];
+
+  for (let index = 0; index < pointCount; index += 1) {
+    const ts = startTick + index;
+    const point = { ts };
+    const filteredPoint = { ts };
+
+    slots.forEach((slotName, slotIndex) => {
+      const phase = (ts + slotIndex * 16) / 12;
+      const value = Math.round(2200 + Math.sin(phase) * 700 + Math.sin(phase / 3) * 120);
+      const filteredValue = Math.round(2200 + Math.sin(phase) * 520);
+      point[slotName] = value;
+      filteredPoint[slotName] = filteredValue;
+    });
+
+    ppgData.push(point);
+    ppgFilterData.push(filteredPoint);
+  }
+
+  for (let index = 0; index < Math.max(1, Math.floor(pointCount / 12)); index += 1) {
+    hrmData.push({
+      ts: startTick + index * 12,
+      'slotA-Channel1': 72,
+    });
+  }
+
+  payload.ppg.data = ppgData;
+  payload.ppg_filter.data = ppgFilterData;
+  payload.ppg_hrm.data = hrmData;
+  return payload;
+}
+
 function createBackendHandler(options = {}) {
   const simState = createSimState();
   const transport = options.transport || createNativeSerialTransport();
@@ -139,6 +176,7 @@ function createBackendHandler(options = {}) {
   let lastPreviewCfg = null;
   let plotActive = false;
   let exportActive = false;
+  let plotTick = 0;
 
   function refreshCachedPreviewPaths() {
     debugState.cachedPreviewPaths = Array.from(previewCfgByPath.keys());
@@ -427,15 +465,26 @@ function createBackendHandler(options = {}) {
 
     async startPlot(args) {
       plotActive = true;
+      plotTick = 0;
       return normalizeArgs(args).value || true;
     },
 
-    async startPlotReceive() {
+    async startPlotReceive(args) {
+      const { type = [], slotList = [] } = normalizeArgs(args);
+      if (!plotActive) {
+        return createEmptyPlotPayload();
+      }
+      if (Array.isArray(type) && type.includes('ppg')) {
+        const payload = createSyntheticPpgPayload(slotList, plotTick);
+        plotTick += payload.ppg.data.length;
+        return payload;
+      }
       return createEmptyPlotPayload();
     },
 
     async stopPlot() {
       plotActive = false;
+      plotTick = 0;
       return true;
     },
 
