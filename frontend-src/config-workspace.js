@@ -3,7 +3,9 @@
   const ROOT_ATTR = 'data-preview-serial-root';
   const TAB_ATTR = 'data-preview-serial-tab';
   const PANEL_ATTR = 'data-preview-serial-panel';
-  const ENDPOINT = '/target/previewCommandLog';
+  const ENDPOINT = 'http://localhost:2880/target/previewCommandLog';
+  const MAX_VISIBLE_ENTRIES = 20;
+  const ACTIVE_CLASS = 'preview-serial-tab-selected';
 
   function formatTimestamp(value) {
     if (!value) return '';
@@ -39,23 +41,35 @@
       return;
     }
 
-    status.textContent = `${entries.length} entries`;
-    for (const entry of entries) {
-      const card = document.createElement('article');
+    const visibleEntries = entries.slice(-MAX_VISIBLE_ENTRIES).reverse();
+    status.textContent = entries.length > MAX_VISIBLE_ENTRIES
+      ? `Showing latest ${visibleEntries.length} of ${entries.length} entries`
+      : `${entries.length} entr${entries.length === 1 ? 'y' : 'ies'}`;
+
+    visibleEntries.forEach((entry, index) => {
+      const card = document.createElement('details');
       card.className = 'preview-serial-entry';
+      card.classList.add('preview-serial-details');
+      if (index < 3) {
+        card.open = true;
+      }
       const commands = Array.isArray(entry.commands) ? entry.commands : [];
       card.innerHTML = `
-        <div class="preview-serial-entry-head">
-          <code class="preview-serial-action"></code>
+        <summary class="preview-serial-summary">
+          <span class="preview-serial-summary-main">
+            <code class="preview-serial-action"></code>
+            <span class="preview-serial-meta"></span>
+          </span>
           <span class="preview-serial-time"></span>
-        </div>
+        </summary>
         <pre class="preview-serial-commands"></pre>
       `;
       card.querySelector('.preview-serial-action').textContent = entry.action || 'unknown';
+      card.querySelector('.preview-serial-meta').textContent = `${commands.length} command${commands.length === 1 ? '' : 's'}`;
       card.querySelector('.preview-serial-time').textContent = formatTimestamp(entry.timestamp);
       card.querySelector('.preview-serial-commands').textContent = commands.join('\n');
       list.appendChild(card);
-    }
+    });
   }
 
   async function refreshLog(panel) {
@@ -77,6 +91,7 @@
     const activate = () => {
       existingTabs.forEach((node) => node.classList.remove('ant-tabs-tab-active'));
       tab.classList.add('ant-tabs-tab-active');
+      root.classList.add(ACTIVE_CLASS);
       contentHolder.style.display = 'none';
       panel.style.display = 'block';
       refreshLog(panel);
@@ -84,6 +99,7 @@
 
     const deactivate = () => {
       tab.classList.remove('ant-tabs-tab-active');
+      root.classList.remove(ACTIVE_CLASS);
       contentHolder.style.display = '';
       panel.style.display = 'none';
     };
