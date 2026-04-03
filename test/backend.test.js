@@ -241,6 +241,34 @@ test('backend exposes PPG populate readbacks for a real dcfg file', async () => 
   );
 });
 
+test('backend PPG populate reads prefer live hardware registers when connected', async () => {
+  const hardwareImage = createBackendHandler();
+  const calls = [];
+  const transport = {
+    isOpen: () => true,
+    readRegister: async (value) => {
+      const normalized = String(value).replace(/^0x/i, '').toLowerCase().padStart(4, '0');
+      calls.push(`0x${normalized}`);
+      return hardwareImage.readRegister({ value: normalized, sim: true });
+    },
+    getSillicon: async () => '7000',
+    getVersion: async () => 'fw',
+    getBoard: async () => 'board',
+  };
+  const handler = createBackendHandler({ transport });
+
+  await hardwareImage.reset();
+  await hardwareImage.loadCfg({ filePath: REAL_PPG_DCFG_PATH, sim: true });
+  await handler.selectDevice('7000');
+
+  assert.equal(await handler.readSampleRate({ type: 'ppg', sillicon: '7000', slot: 'NA' }), 100);
+  assert.deepEqual(await handler.readSlotEnable({ type: 'ppg' }), ['A']);
+  assert.deepEqual(await handler.readLedType({ slot: 'A' }), ['LED1A']);
+  assert.equal(await handler.readOperationMode({ slot: 'A' }), 'normal');
+  assert.equal(calls.length > 0, true);
+  assert.equal(calls.some((address) => /^0x[0-9a-f]{4}$/.test(address)), true);
+});
+
 test('backend PPG write routes update sim state and round-trip through populate reads', async () => {
   const handler = createBackendHandler();
 
@@ -315,6 +343,38 @@ test('backend AGC controls track preview state', async () => {
   assert.equal(await handler.AGCSlotOnOff({ slotNumber: 'A', data: 0, status: true }), 1);
   assert.equal(await handler.AGCSlotLED({ slotNumber: 'A', data: 1, led: 'LED2B' }), 7);
   assert.equal(await handler.AGCSlotChannel({ slotNumber: 'A', data: 7, channel: 'Channel2' }), 15);
+});
+
+test('backend replays preview-generated PPG write commands to hardware when connected', async () => {
+  const executed = [];
+  const loadedCfg = [];
+  const transport = {
+    isOpen: () => true,
+    executeCommands: async (commands) => {
+      executed.push([...commands]);
+      return true;
+    },
+    loadCfgContent: async (content) => {
+      loadedCfg.push(content);
+      return 'success';
+    },
+    getSillicon: async () => '7000',
+    getVersion: async () => 'fw',
+    getBoard: async () => 'board',
+  };
+  const handler = createBackendHandler({ transport });
+
+  await handler.selectDevice('7000');
+  await handler.loadCfg({ filePath: REAL_PPG_DCFG_PATH, sim: true });
+
+  assert.equal(await handler.writeTIAGain({ slot: 'A', channelName: 'Channel1', resistanceValue: 25 }), 'success');
+  assert.equal(executed[0].some((command) => command.startsWith('reg_write ')), true);
+
+  assert.equal(await handler.AGCOnOff({ status: true }), true);
+  assert.deepEqual(executed[1], ['agc_en 1']);
+
+  assert.equal(await handler.writeSimRegister2Hardware({}), true);
+  assert.match(loadedCfg[0], /^007a 0001$/m);
 });
 
 test('backend plot routes return the frontend-compatible empty payload shape', async () => {

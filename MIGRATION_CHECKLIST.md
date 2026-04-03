@@ -5,6 +5,7 @@ This file tracks the current state of `mac-preview` and the migration path from:
 1. `missing`
 2. `sim / patched`
 3. `real`
+4. `mixed`
 
 The working rule is:
 - implement every `missing` surface first so the browser app stops breaking
@@ -14,6 +15,7 @@ The working rule is:
 ## Status Legend
 
 - `[x] real`
+- `[~] mixed`
 - `[-] sim / patched`
 - `[ ] missing`
 
@@ -55,14 +57,13 @@ The working rule is:
 
 ### Current State
 
-- `[x]` PPG populate readbacks for config windows
-- `[x]` PPG config writes in preview backend
-- `[x]` AGC control writes in preview backend
+- `[~]` PPG populate reads use live hardware registers when connected, with sim decode/fallback
+- `[~]` PPG config writes replay generated register commands to hardware when connected
+- `[~]` AGC control writes replay AGC commands to hardware when connected
 - `[x]` register page reads / writes
 - `[x]` serial-equivalent command logging
-- `[-]` config reads mostly come from mirrored sim state, not direct hardware reads
 - `[-]` config writes mirror into sim even when hardware is connected
-- `[ ]` direct hardware-backed populate read path for all PPG controls
+- `[x]` direct hardware-backed populate read path for core PPG controls
 - `[ ]` end-to-end verification that every PPG control round-trips from hardware state
 
 ### Checklist
@@ -79,12 +80,12 @@ The working rule is:
 ### Current State
 
 - `[x]` plot routes no longer crash the frontend
-- `[-]` `startPlotReceive` currently returns synthetic PPG data
+- `[~]` `startPlot` / `startPlotReceive` / `stopPlot` use hardware when connected and synthetic fallback otherwise
+- `[x]` real PPG plot data parsing from serial stream
 - `[-]` `ppgFullScale` currently returns preview placeholder output
 - `[-]` `ppgSmoothProcess` currently returns preview passthrough output
-- `[-]` `startExportData` / `stopExportData` are preview placeholders
-- `[ ]` real FIFO start / receive / stop from hardware
-- `[ ]` real PPG plot data parsing from serial stream
+- `[~]` `startExportData` / `stopExportData` toggle transport capture but do not yet produce a real export artifact
+- `[x]` real FIFO start / receive / stop from hardware
 - `[ ]` real scaling output from live/store state
 - `[ ]` real smoothing behavior matching shipped app
 - `[ ]` real plot export data
@@ -92,14 +93,14 @@ The working rule is:
 ### Checklist
 
 - `[ ]` inspect exact `startPlot` command string sent by the frontend
-- `[ ]` implement hardware-backed `startPlot`
-- `[ ]` implement hardware-backed `startPlotReceive`
-- `[ ]` parse real FIFO payload into the expected plot object shape
-- `[ ]` implement real `stopPlot`
+- `[x]` implement hardware-backed `startPlot`
+- `[x]` implement hardware-backed `startPlotReceive`
+- `[x]` parse real FIFO payload into the expected plot object shape
+- `[x]` implement real `stopPlot`
 - `[ ]` implement real `ppgFullScale`
 - `[ ]` implement real `ppgSmoothProcess`
-- `[ ]` implement real `startExportData`
-- `[ ]` implement real `stopExportData`
+- `[~]` implement real `startExportData`
+- `[~]` implement real `stopExportData`
 - `[ ]` keep synthetic plot mode as fallback until live plotting is stable
 
 ## 5. Connection Status Matrix
@@ -118,8 +119,11 @@ The working rule is:
 - `/target/readRegister`
 - `/target/writeRegister`
 - `/target/loadCfg`
+- `/target/startPlot`
+- `/target/startPlotReceive`
+- `/target/stopPlot`
 
-### Sim / Patched
+### Mixed: Hardware-Backed With Sim Mirror Or Fallback
 
 - `/target/readSampleRate`
 - `/target/readSlotEnable`
@@ -150,21 +154,20 @@ The working rule is:
 - `/target/AGCSlotOnOff`
 - `/target/AGCSlotLED`
 - `/target/AGCSlotChannel`
-- `/target/exportCfg`
-- `/target/previewCommandLog`
-- `/target/startPlot`
-- `/target/startPlotReceive`
-- `/target/stopPlot`
 - `/target/startExportData`
 - `/target/stopExportData`
+
+### Sim / Patched
+- `/target/exportCfg`
 - `/target/ppgFullScale`
 - `/target/ppgSmoothProcess`
+- `/target/previewCommandLog`
 
 ### Missing Or Not Yet Real
 
-- `[ ]` hardware-backed PPG populate reads
-- `[ ]` hardware-backed PPG config write verification layer
-- `[ ]` hardware-backed PPG plotting
+ - `[~]` hardware-backed PPG populate reads
+ - `[~]` hardware-backed PPG config write verification layer
+- `[~]` hardware-backed PPG plotting
 - `[ ]` hardware-backed PPG export-data path
 - `[ ]` ECG configuration parity
 - `[ ]` ECG plotting parity
@@ -208,10 +211,10 @@ The working rule is:
 
 ### Then: sim / patched to real
 
-- `[ ]` convert PPG populate reads from sim-first to hardware-first
-- `[ ]` convert PPG write verification from mirror-only to hardware round-trip
-- `[ ]` replace synthetic plot stream with real FIFO stream
-- `[ ]` replace preview plot helpers with real implementations
+- `[~]` convert PPG populate reads from sim-first to hardware-first
+- `[~]` convert PPG write verification from mirror-only to hardware round-trip
+- `[~]` replace synthetic plot stream with real FIFO stream
+- `[ ]` replace remaining preview plot helpers with real implementations
 - `[ ]` reduce `prepare.js` patch surface
 
 ### Last: expand beyond PPG
@@ -220,4 +223,3 @@ The working rule is:
 - `[ ]` BIOZ
 - `[ ]` EDA
 - `[ ]` cloud / upload / analysis
-

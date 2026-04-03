@@ -241,6 +241,16 @@ function parseHardwarePpgPayload(rawData, slotList = [], sillicon = '7000') {
   return payload;
 }
 
+function addRegisterAddress(target, field) {
+  if (!field || !field.Address) {
+    return;
+  }
+  target.add(String(field.Address));
+  if (field.AddressAnd) {
+    target.add(String(field.AddressAnd));
+  }
+}
+
 function createBackendHandler(options = {}) {
   const simState = createSimState();
   const transport = options.transport || createNativeSerialTransport();
@@ -270,6 +280,106 @@ function createBackendHandler(options = {}) {
   function shouldUseHardware(args) {
     const normalized = normalizeArgs(args);
     return normalized.sim !== true && transport.isOpen();
+  }
+
+  async function syncRegistersFromHardware(addresses) {
+    const uniqueAddresses = [...new Set((addresses || []).map((value) => String(value).trim()).filter(Boolean))];
+    for (const address of uniqueAddresses) {
+      const registerValue = await transport.readRegister(address);
+      await simState.writeRegister(address, `0x${registerValue}`);
+    }
+  }
+
+  function getPpgPopulateRegisterAddresses(kind, args) {
+    const mapping = simState.getMapping();
+    const normalized = normalizeArgs(args);
+    const slot = normalized.slot || normalized.slotName || 'A';
+    const type = normalized.type || 'ppg';
+    const sampleSlot = normalized.slot || 'NA';
+    const addresses = new Set();
+
+    switch (kind) {
+      case 'readSampleRate': {
+        const sampleField = mapping[`${type}_slot${sampleSlot}_sample_rate`];
+        for (const part of sampleField['Sample Bits'] || []) {
+          addRegisterAddress(addresses, part.Attribute);
+        }
+        break;
+      }
+      case 'readSlotEnable':
+        addRegisterAddress(addresses, mapping[`${type}_timeslot_en`]);
+        break;
+      case 'readPPGAFETrimVref':
+        addRegisterAddress(addresses, mapping[`${slot}`] && mapping[`${slot}`].afe_trim_vref);
+        break;
+      case 'readPPGAmbientCancellation':
+        addRegisterAddress(addresses, mapping[`${slot}`] && mapping[`${slot}`].ambient_cancellation);
+        break;
+      case 'readDecimateFactor':
+        addRegisterAddress(addresses, mapping[`${slot}`] && mapping[`${slot}`]['Decimate Factor']);
+        break;
+      case 'readCHEnable':
+        addRegisterAddress(addresses, mapping[`${slot}`] && mapping[`${slot}`].channel_en_x);
+        break;
+      case 'readTIAGain':
+        for (const channel of (mapping[`${slot}`] && mapping[`${slot}`]['Channel Control']) || []) {
+          addRegisterAddress(addresses, channel.Attribute['TIA gain']);
+        }
+        break;
+      case 'readDACLEDDC':
+        for (const channel of (mapping[`${slot}`] && mapping[`${slot}`]['Channel Control']) || []) {
+          addRegisterAddress(addresses, channel.Attribute.dac_led_dc);
+        }
+        break;
+      case 'readOperationMode':
+        addRegisterAddress(addresses, mapping[`${slot}`] && mapping[`${slot}`]['Slot Control']);
+        break;
+      case 'readLedType':
+      case 'readLedCurrent':
+        for (const led of (mapping[`${slot}`] && mapping[`${slot}`]['LED Control']) || []) {
+          addRegisterAddress(addresses, led.Attribute.Enable);
+          addRegisterAddress(addresses, led.Attribute.Current);
+        }
+        break;
+      case 'populateDIMode':
+        for (const field of Object.values((mapping[`${slot}`] && mapping[`${slot}`]['Timming Control']) || {})) {
+          addRegisterAddress(addresses, field);
+        }
+        break;
+      default:
+        break;
+    }
+
+    return [...addresses];
+  }
+
+  async function syncPpgPopulateRoute(kind, args) {
+    if (!shouldUseHardware(args)) {
+      return;
+    }
+    await syncRegistersFromHardware(getPpgPopulateRegisterAddresses(kind, args));
+  }
+
+  async function replayLatestPreviewCommands(beforeCount) {
+    if (!transport.isOpen() || typeof transport.executeCommands !== 'function') {
+      return;
+    }
+    if (simState.getPreviewCommandCount() <= beforeCount) {
+      return;
+    }
+    const latest = simState.getLatestPreviewCommand();
+    if (latest && Array.isArray(latest.commands) && latest.commands.length > 0) {
+      await transport.executeCommands(latest.commands);
+    }
+  }
+
+  async function runSimWriteWithHardwareReplay(args, writer) {
+    const beforeCount = simState.getPreviewCommandCount();
+    const result = await writer();
+    if (shouldUseHardware(args)) {
+      await replayLatestPreviewCommands(beforeCount);
+    }
+    return result;
   }
 
   async function syncSelectedDeviceFromHardware() {
@@ -370,169 +480,184 @@ function createBackendHandler(options = {}) {
     async readSampleRate(args) {
       await ensureSelectedDevice();
       const { type, sillicon = simState.getDevice() || DEFAULT_DEVICE, slot = 'NA' } = normalizeArgs(args);
+      await syncPpgPopulateRoute('readSampleRate', args);
       return simState.readSampleRate(type, sillicon, slot);
     },
 
     async readSlotEnable(args) {
       await ensureSelectedDevice();
       const { type } = normalizeArgs(args);
+      await syncPpgPopulateRoute('readSlotEnable', args);
       return simState.readSlotEnable(type);
     },
 
     async readPPGAFETrimVref(args) {
       await ensureSelectedDevice();
       const { slot } = normalizeArgs(args);
+      await syncPpgPopulateRoute('readPPGAFETrimVref', args);
       return simState.readPPGAFETrimVref(slot);
     },
 
     async readPPGAmbientCancellation(args) {
       await ensureSelectedDevice();
       const { slot } = normalizeArgs(args);
+      await syncPpgPopulateRoute('readPPGAmbientCancellation', args);
       return simState.readPPGAmbientCancellation(slot);
     },
 
     async readDecimateFactor(args) {
       await ensureSelectedDevice();
       const { slot } = normalizeArgs(args);
+      await syncPpgPopulateRoute('readDecimateFactor', args);
       return simState.readDecimateFactor(slot);
     },
 
     async readCHEnable(args) {
       await ensureSelectedDevice();
       const { slot } = normalizeArgs(args);
+      await syncPpgPopulateRoute('readCHEnable', args);
       return simState.readCHEnable(slot);
     },
 
     async readTIAGain(args) {
       await ensureSelectedDevice();
       const { slot } = normalizeArgs(args);
+      await syncPpgPopulateRoute('readTIAGain', args);
       return simState.readTIAGain(slot);
     },
 
     async readDACLEDDC(args) {
       await ensureSelectedDevice();
       const { slot, sillicon = simState.getDevice() || DEFAULT_DEVICE } = normalizeArgs(args);
+      await syncPpgPopulateRoute('readDACLEDDC', args);
       return simState.readDACLEDDC(slot, sillicon);
     },
 
     async readOperationMode(args) {
       await ensureSelectedDevice();
       const { slot } = normalizeArgs(args);
+      await syncPpgPopulateRoute('readOperationMode', args);
       return simState.readOperationMode(slot);
     },
 
     async readLedType(args) {
       await ensureSelectedDevice();
       const { slot } = normalizeArgs(args);
+      await syncPpgPopulateRoute('readLedType', args);
       return simState.readLedType(slot);
     },
 
     async readLedCurrent(args) {
       await ensureSelectedDevice();
       const { slot, sillicon = simState.getDevice() || DEFAULT_DEVICE } = normalizeArgs(args);
+      await syncPpgPopulateRoute('readLedCurrent', args);
       return simState.readLedCurrent(slot, sillicon);
     },
 
     async populateDIMode(args) {
       await ensureSelectedDevice();
       const { slotName } = normalizeArgs(args);
+      await syncPpgPopulateRoute('populateDIMode', args);
       return simState.populateDIMode(slotName);
     },
 
     async writeSampleRate(args) {
       await ensureSelectedDevice();
       const { type, sample, sillicon = simState.getDevice() || DEFAULT_DEVICE, slot = 'NA' } = normalizeArgs(args);
-      return simState.writeSampleRate(type, sample, sillicon, slot);
+      return runSimWriteWithHardwareReplay(args, () => simState.writeSampleRate(type, sample, sillicon, slot));
     },
 
     async writeSampleRateLoop(args) {
       await ensureSelectedDevice();
       const { type, sample, sillicon = simState.getDevice() || DEFAULT_DEVICE, slotList = [] } = normalizeArgs(args);
-      return simState.writeSampleRateLoop(type, sample, sillicon, slotList);
+      return runSimWriteWithHardwareReplay(args, () => simState.writeSampleRateLoop(type, sample, sillicon, slotList));
     },
 
     async writeSlotEnable(args) {
       await ensureSelectedDevice();
       const { slots, type } = normalizeArgs(args);
-      return simState.writeSlotEnable(slots, type);
+      return runSimWriteWithHardwareReplay(args, () => simState.writeSlotEnable(slots, type));
     },
 
     async writeCHEnable(args) {
       await ensureSelectedDevice();
       const { slot, channelName } = normalizeArgs(args);
-      return simState.writeCHEnable(slot, channelName);
+      return runSimWriteWithHardwareReplay(args, () => simState.writeCHEnable(slot, channelName));
     },
 
     async writeTIAGain(args) {
       await ensureSelectedDevice();
       const { slot, channelName, resistanceValue } = normalizeArgs(args);
-      return simState.writeTIAGain(slot, channelName, resistanceValue);
+      return runSimWriteWithHardwareReplay(args, () => simState.writeTIAGain(slot, channelName, resistanceValue));
     },
 
     async writeDACLEDDC(args) {
       await ensureSelectedDevice();
       const { slot, chName, dacValue, sillicon = simState.getDevice() || DEFAULT_DEVICE } = normalizeArgs(args);
-      return simState.writeDACLEDDC(slot, chName, dacValue, sillicon);
+      return runSimWriteWithHardwareReplay(args, () => simState.writeDACLEDDC(slot, chName, dacValue, sillicon));
     },
 
     async writeOperationMode(args) {
       await ensureSelectedDevice();
       const { slot, type } = normalizeArgs(args);
-      return simState.writeOperationMode(slot, type);
+      return runSimWriteWithHardwareReplay(args, () => simState.writeOperationMode(slot, type));
     },
 
     async writeLedType(args) {
       await ensureSelectedDevice();
       const { slot, ledType, status } = normalizeArgs(args);
-      return simState.writeLedType(slot, ledType, status);
+      return runSimWriteWithHardwareReplay(args, () => simState.writeLedType(slot, ledType, status));
     },
 
     async writeLedCurrent(args) {
       await ensureSelectedDevice();
       const { slot, ledType, currentValue, sillicon = simState.getDevice() || DEFAULT_DEVICE } = normalizeArgs(args);
-      return simState.writeLedCurrent(slot, ledType, currentValue, sillicon);
+      return runSimWriteWithHardwareReplay(args, () => simState.writeLedCurrent(slot, ledType, currentValue, sillicon));
     },
 
     async writePulse(args) {
       await ensureSelectedDevice();
       const { slot, pulseValue, type } = normalizeArgs(args);
-      return simState.writePulse(slot, pulseValue, type);
+      return runSimWriteWithHardwareReplay(args, () => simState.writePulse(slot, pulseValue, type));
     },
 
     async writeDecimateFactor(args) {
       await ensureSelectedDevice();
       const { slot, decimateFactorValue } = normalizeArgs(args);
-      return simState.writeDecimateFactor(slot, decimateFactorValue);
+      return runSimWriteWithHardwareReplay(args, () => simState.writeDecimateFactor(slot, decimateFactorValue));
     },
 
-    async writeSimRegister2Hardware() {
+    async writeSimRegister2Hardware(args) {
       await ensureSelectedDevice();
+      if (shouldUseHardware(args) && typeof transport.loadCfgContent === 'function') {
+        await transport.loadCfgContent(simState.serializeCfgContent());
+      }
       return simState.writeSimRegister2Hardware();
     },
 
     async AGCOnOff(args) {
       const { status } = normalizeArgs(args);
-      return simState.AGCOnOff(status);
+      return runSimWriteWithHardwareReplay(args, () => simState.AGCOnOff(status));
     },
 
     async AGCSample(args) {
       const { average, skip } = normalizeArgs(args);
-      return simState.AGCSample(average, skip);
+      return runSimWriteWithHardwareReplay(args, () => simState.AGCSample(average, skip));
     },
 
     async AGCSlotOnOff(args) {
       const { slotNumber, data, status } = normalizeArgs(args);
-      return simState.AGCSlotOnOff(slotNumber, data, status);
+      return runSimWriteWithHardwareReplay(args, () => simState.AGCSlotOnOff(slotNumber, data, status));
     },
 
     async AGCSlotLED(args) {
       const { slotNumber, data, led } = normalizeArgs(args);
-      return simState.AGCSlotLED(slotNumber, data, led);
+      return runSimWriteWithHardwareReplay(args, () => simState.AGCSlotLED(slotNumber, data, led));
     },
 
     async AGCSlotChannel(args) {
       const { slotNumber, data, channel } = normalizeArgs(args);
-      return simState.AGCSlotChannel(slotNumber, data, channel);
+      return runSimWriteWithHardwareReplay(args, () => simState.AGCSlotChannel(slotNumber, data, channel));
     },
 
     async exportCfg(args) {
