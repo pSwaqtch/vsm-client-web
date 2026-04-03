@@ -1,0 +1,86 @@
+.preview-serial-panel {
+  margin-top: 16px;
+  border: 1px solid #d9d9d9;
+  border-radius: 8px;
+  background: #fff;
+  padding: 16px;
+}
+
+.preview-serial-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.preview-serial-header h3 {
+  margin: 0;
+  font-size: 18px;
+}
+
+.preview-serial-header p {
+  margin: 4px 0 0;
+  color: #595959;
+}
+
+.preview-serial-refresh {
+  border: 1px solid #1677ff;
+  background: #1677ff;
+  color: #fff;
+  border-radius: 6px;
+  padding: 6px 12px;
+  cursor: pointer;
+}
+
+.preview-serial-status {
+  margin-bottom: 12px;
+  color: #595959;
+}
+
+.preview-serial-list {
+  display: grid;
+  gap: 12px;
+}
+
+.preview-serial-entry {
+  border: 1px solid #f0f0f0;
+  border-radius: 8px;
+  padding: 12px;
+  background: #fafafa;
+}
+
+.preview-serial-entry-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.preview-serial-action {
+  font-size: 13px;
+  color: #262626;
+}
+
+.preview-serial-time {
+  font-size: 12px;
+  color: #8c8c8c;
+  white-space: nowrap;
+}
+
+.preview-serial-commands {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  background: #141414;
+  color: #f5f5f5;
+  border-radius: 6px;
+  padding: 10px;
+  font-size: 12px;
+}
+
+.preview-serial-tab .ant-tabs-tab-btn {
+  color: #262626;
+  font-weight: 500;
+}

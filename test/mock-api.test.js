@@ -50,6 +50,7 @@ test('mockResponseFor lets PPG config write and export routes reach the backend'
   assert.equal(mockResponseFor('/target/AGCSlotLED', 'POST'), null);
   assert.equal(mockResponseFor('/target/AGCSlotChannel', 'POST'), null);
   assert.equal(mockResponseFor('/target/exportCfg', 'POST'), null);
+  assert.equal(mockResponseFor('/target/previewCommandLog', 'GET'), null);
 });
 
 test('buildShimScript includes the preview file bridge for target/loadCfg', () => {
@@ -89,4 +90,5 @@ test('buildShimScript passthroughs the PPG write and export endpoints', () => {
   assert.match(script, /\/target\/writeLedCurrent/);
   assert.match(script, /\/target\/AGCSlotOnOff/);
   assert.match(script, /\/target\/exportCfg/);
+  assert.match(script, /\/target\/previewCommandLog/);
 });

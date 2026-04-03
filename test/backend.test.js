@@ -269,3 +269,21 @@ test('backend exportCfg writes a dcfg file from current sim state', async () => 
     }
   }
 });
+
+test('backend records serial-equivalent commands for preview writes', async () => {
+  const handler = createBackendHandler();
+
+  await handler.reset();
+  await handler.loadCfg({ filePath: REAL_PPG_DCFG_PATH, sim: true });
+  await handler.writeTIAGain({ slot: 'A', channelName: 'Channel1', resistanceValue: 25, sim: true });
+
+  const log = await handler.previewCommandLog();
+
+  assert.equal(Array.isArray(log), true);
+  assert.equal(log.length > 0, true);
+  assert.match(log[0].action, /^writeTIAGain\(A, Channel1, 25\)$/);
+  assert.equal(Array.isArray(log[0].commands), true);
+  assert.equal(log[0].commands.length >= 2, true);
+  assert.match(log[0].commands[0], /^reg_read 0x[0-9a-f]{4}$/);
+  assert.match(log[0].commands[1], /^reg_write 0x[0-9a-f]{4} 0x[0-9a-f]{4}$/);
+});

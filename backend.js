@@ -359,6 +359,10 @@ function createBackendHandler() {
       return `Success to write dcfg file in ${path.resolve(filePath)}`;
     },
 
+    async previewCommandLog() {
+      return simState.getPreviewCommandLog();
+    },
+
     async getVersion() {
       return 'preview';
     },
@@ -432,6 +436,7 @@ function createBackendServer(port = 2880) {
     '/target/AGCSlotLED': (body) => handler.AGCSlotLED(body),
     '/target/AGCSlotChannel': (body) => handler.AGCSlotChannel(body),
     '/target/exportCfg': (body) => handler.exportCfg(body),
+    '/target/previewCommandLog': () => handler.previewCommandLog(),
     '/target/getVersion': () => handler.getVersion(),
     '/target/getBoard': () => handler.getBoard(),
     '/target/getSillicon': () => handler.getSillicon(),
