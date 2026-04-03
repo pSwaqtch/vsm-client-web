@@ -1,5 +1,6 @@
 const fs = require('node:fs');
 const http = require('node:http');
+const path = require('node:path');
 
 const { createSimState } = require('./lib/sim-state.js');
 
@@ -177,6 +178,12 @@ function createBackendHandler() {
       return simState.readRegister(value);
     },
 
+    async writeRegister(args) {
+      await ensureSelectedDevice();
+      const { value } = normalizeArgs(args);
+      return simState.writeRegisterValue(value);
+    },
+
     async readSampleRate(args) {
       await ensureSelectedDevice();
       const { type, sillicon = simState.getDevice() || DEFAULT_DEVICE, slot = 'NA' } = normalizeArgs(args);
@@ -249,6 +256,109 @@ function createBackendHandler() {
       return simState.populateDIMode(slotName);
     },
 
+    async writeSampleRate(args) {
+      await ensureSelectedDevice();
+      const { type, sample, sillicon = simState.getDevice() || DEFAULT_DEVICE, slot = 'NA' } = normalizeArgs(args);
+      return simState.writeSampleRate(type, sample, sillicon, slot);
+    },
+
+    async writeSampleRateLoop(args) {
+      await ensureSelectedDevice();
+      const { type, sample, sillicon = simState.getDevice() || DEFAULT_DEVICE, slotList = [] } = normalizeArgs(args);
+      return simState.writeSampleRateLoop(type, sample, sillicon, slotList);
+    },
+
+    async writeSlotEnable(args) {
+      await ensureSelectedDevice();
+      const { slots, type } = normalizeArgs(args);
+      return simState.writeSlotEnable(slots, type);
+    },
+
+    async writeCHEnable(args) {
+      await ensureSelectedDevice();
+      const { slot, channelName } = normalizeArgs(args);
+      return simState.writeCHEnable(slot, channelName);
+    },
+
+    async writeTIAGain(args) {
+      await ensureSelectedDevice();
+      const { slot, channelName, resistanceValue } = normalizeArgs(args);
+      return simState.writeTIAGain(slot, channelName, resistanceValue);
+    },
+
+    async writeDACLEDDC(args) {
+      await ensureSelectedDevice();
+      const { slot, chName, dacValue, sillicon = simState.getDevice() || DEFAULT_DEVICE } = normalizeArgs(args);
+      return simState.writeDACLEDDC(slot, chName, dacValue, sillicon);
+    },
+
+    async writeOperationMode(args) {
+      await ensureSelectedDevice();
+      const { slot, type } = normalizeArgs(args);
+      return simState.writeOperationMode(slot, type);
+    },
+
+    async writeLedType(args) {
+      await ensureSelectedDevice();
+      const { slot, ledType, status } = normalizeArgs(args);
+      return simState.writeLedType(slot, ledType, status);
+    },
+
+    async writeLedCurrent(args) {
+      await ensureSelectedDevice();
+      const { slot, ledType, currentValue, sillicon = simState.getDevice() || DEFAULT_DEVICE } = normalizeArgs(args);
+      return simState.writeLedCurrent(slot, ledType, currentValue, sillicon);
+    },
+
+    async writePulse(args) {
+      await ensureSelectedDevice();
+      const { slot, pulseValue, type } = normalizeArgs(args);
+      return simState.writePulse(slot, pulseValue, type);
+    },
+
+    async writeDecimateFactor(args) {
+      await ensureSelectedDevice();
+      const { slot, decimateFactorValue } = normalizeArgs(args);
+      return simState.writeDecimateFactor(slot, decimateFactorValue);
+    },
+
+    async writeSimRegister2Hardware() {
+      await ensureSelectedDevice();
+      return simState.writeSimRegister2Hardware();
+    },
+
+    async AGCOnOff(args) {
+      const { status } = normalizeArgs(args);
+      return simState.AGCOnOff(status);
+    },
+
+    async AGCSample(args) {
+      const { average, skip } = normalizeArgs(args);
+      return simState.AGCSample(average, skip);
+    },
+
+    async AGCSlotOnOff(args) {
+      const { slotNumber, data, status } = normalizeArgs(args);
+      return simState.AGCSlotOnOff(slotNumber, data, status);
+    },
+
+    async AGCSlotLED(args) {
+      const { slotNumber, data, led } = normalizeArgs(args);
+      return simState.AGCSlotLED(slotNumber, data, led);
+    },
+
+    async AGCSlotChannel(args) {
+      const { slotNumber, data, channel } = normalizeArgs(args);
+      return simState.AGCSlotChannel(slotNumber, data, channel);
+    },
+
+    async exportCfg(args) {
+      await ensureSelectedDevice();
+      const { type = [], sillicon = simState.getDevice() || DEFAULT_DEVICE, otherRegisters = [] } = normalizeArgs(args);
+      const filePath = simState.exportCfgFile(type, sillicon, otherRegisters);
+      return `Success to write dcfg file in ${path.resolve(filePath)}`;
+    },
+
     async getVersion() {
       return 'preview';
     },
@@ -291,6 +401,7 @@ function createBackendServer(port = 2880) {
     '/target/loadCfg': (body) => handler.loadCfg(body),
     '/target/previewStoreCfg': (body) => handler.cachePreviewCfg(body),
     '/target/readRegister': (body) => handler.readRegister(body),
+    '/target/writeRegister': (body) => handler.writeRegister(body),
     '/target/readSampleRate': (body) => handler.readSampleRate(body),
     '/target/readSlotEnable': (body) => handler.readSlotEnable(body),
     '/target/readPPGAFETrimVref': (body) => handler.readPPGAFETrimVref(body),
@@ -303,6 +414,24 @@ function createBackendServer(port = 2880) {
     '/target/readLedType': (body) => handler.readLedType(body),
     '/target/readLedCurrent': (body) => handler.readLedCurrent(body),
     '/target/populateDIMode': (body) => handler.populateDIMode(body),
+    '/target/writeSampleRate': (body) => handler.writeSampleRate(body),
+    '/target/writeSampleRateLoop': (body) => handler.writeSampleRateLoop(body),
+    '/target/writeSlotEnable': (body) => handler.writeSlotEnable(body),
+    '/target/writeCHEnable': (body) => handler.writeCHEnable(body),
+    '/target/writeTIAGain': (body) => handler.writeTIAGain(body),
+    '/target/writeDACLEDDC': (body) => handler.writeDACLEDDC(body),
+    '/target/writeOperationMode': (body) => handler.writeOperationMode(body),
+    '/target/writeLedType': (body) => handler.writeLedType(body),
+    '/target/writeLedCurrent': (body) => handler.writeLedCurrent(body),
+    '/target/writePulse': (body) => handler.writePulse(body),
+    '/target/writeDecimateFactor': (body) => handler.writeDecimateFactor(body),
+    '/target/writeSimRegister2Hardware': (body) => handler.writeSimRegister2Hardware(body),
+    '/target/AGCOnOff': (body) => handler.AGCOnOff(body),
+    '/target/AGCSample': (body) => handler.AGCSample(body),
+    '/target/AGCSlotOnOff': (body) => handler.AGCSlotOnOff(body),
+    '/target/AGCSlotLED': (body) => handler.AGCSlotLED(body),
+    '/target/AGCSlotChannel': (body) => handler.AGCSlotChannel(body),
+    '/target/exportCfg': (body) => handler.exportCfg(body),
     '/target/getVersion': () => handler.getVersion(),
     '/target/getBoard': () => handler.getBoard(),
     '/target/getSillicon': () => handler.getSillicon(),

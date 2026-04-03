@@ -1,5 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
 const path = require('node:path');
 
 const { createBackendHandler, createBackendServer } = require('../backend.js');
@@ -160,4 +161,111 @@ test('backend exposes PPG populate readbacks for a real dcfg file', async () => 
     await handler.populateDIMode({ slotName: 'A', connectionStatus: false }),
     [1, 10, 54, 24, 30, 34, 1, 10],
   );
+});
+
+test('backend PPG write routes update sim state and round-trip through populate reads', async () => {
+  const handler = createBackendHandler();
+
+  await handler.reset();
+  await handler.loadCfg({ filePath: REAL_PPG_DCFG_PATH, sim: true });
+
+  assert.equal(await handler.writeSlotEnable({ slots: 'AB', type: 'ppg', sim: true }), 'success');
+  assert.deepEqual(await handler.readSlotEnable({ type: 'ppg', sim: true }), ['A', 'B']);
+
+  assert.equal(await handler.writeCHEnable({ slot: 'A', channelName: 'Channel1,Channel2', sim: true }), 'success');
+  assert.deepEqual(await handler.readCHEnable({ slot: 'A', sim: true }), ['Channel1', 'Channel2']);
+
+  assert.equal(await handler.writeTIAGain({ slot: 'A', channelName: 'Channel1', resistanceValue: 25, sim: true }), 'success');
+  assert.deepEqual(
+    await handler.readTIAGain({ slot: 'A', sim: true }),
+    [
+      { channelName: 'Channel1', optionValue: 25 },
+      { channelName: 'Channel2', optionValue: 100 },
+      { channelName: 'Channel3', optionValue: 100 },
+      { channelName: 'Channel4', optionValue: 100 },
+    ],
+  );
+
+  assert.equal(await handler.writeDACLEDDC({ slot: 'A', chName: 'Channel1', dacValue: 3.0, sillicon: '7000', sim: true }), 'success');
+  assert.deepEqual(
+    await handler.readDACLEDDC({ slot: 'A', sillicon: '7000', sim: true }),
+    [
+      { channelName: 'Channel1', optionValue: 3 },
+      { channelName: 'Channel2', optionValue: 0 },
+      { channelName: 'Channel3', optionValue: 0 },
+      { channelName: 'Channel4', optionValue: 0 },
+    ],
+  );
+
+  assert.equal(await handler.writeOperationMode({ slot: 'A', type: 'two', sim: true }), 'success');
+  assert.equal(await handler.readOperationMode({ slot: 'A', sim: true }), 'two');
+
+  assert.equal(await handler.writeLedType({ slot: 'A', ledType: 'LED2A', status: true, sim: true }), 'success');
+  assert.equal(await handler.writeLedCurrent({ slot: 'A', ledType: 'LED2A', currentValue: 31.24, sillicon: '7000', sim: true }), 'success');
+  assert.deepEqual(await handler.readLedType({ slot: 'A', sim: true }), ['LED1A', 'LED2A']);
+  assert.deepEqual(
+    await handler.readLedCurrent({ slot: 'A', sillicon: '7000', sim: true }),
+    [
+      { ledName: 'LED1A', optionValue: '15.745' },
+      { ledName: 'LED2A', optionValue: '31.495' },
+    ],
+  );
+
+  assert.equal(await handler.writePulse({ slot: 'A', pulseValue: 7, type: 'NUM_INT_x', sim: true }), 'success');
+  const diMode = await handler.populateDIMode({ slotName: 'A', connectionStatus: false });
+  assert.deepEqual(diMode, [1, 7, 54, 24, 30, 34, 1, 10]);
+
+  assert.equal(await handler.writeDecimateFactor({ slot: 'A', decimateFactorValue: 4, sim: true }), 'success');
+  assert.equal(await handler.readDecimateFactor({ slot: 'A', sim: true }), 4);
+
+  assert.equal(await handler.writeSampleRate({ type: 'ppg', sample: 400, sillicon: '7000', slot: 'NA', sim: true }), 'success');
+  assert.equal(await handler.readSampleRate({ type: 'ppg', sillicon: '7000', slot: 'NA', sim: true }), 400);
+
+  assert.equal(await handler.writeRegister({ value: '0010 00bb', sim: true }), '0x0010 0x00bb');
+  assert.equal(await handler.readRegister({ value: '0010', sim: true }), '00bb');
+
+  assert.equal(await handler.writeSimRegister2Hardware({ sim: true }), true);
+});
+
+test('backend AGC controls track preview state', async () => {
+  const handler = createBackendHandler();
+
+  await handler.reset();
+
+  assert.equal(await handler.AGCOnOff({ status: true }), true);
+  assert.equal(await handler.AGCSample({ average: 5, skip: 2 }), true);
+  assert.equal(await handler.AGCSlotOnOff({ slotNumber: 'A', data: 0, status: true }), 1);
+  assert.equal(await handler.AGCSlotLED({ slotNumber: 'A', data: 1, led: 'LED2B' }), 7);
+  assert.equal(await handler.AGCSlotChannel({ slotNumber: 'A', data: 7, channel: 'Channel2' }), 15);
+});
+
+test('backend exportCfg writes a dcfg file from current sim state', async () => {
+  const handler = createBackendHandler();
+  let filePath = '';
+
+  await handler.reset();
+  await handler.loadCfg({ filePath: REAL_PPG_DCFG_PATH, sim: true });
+  await handler.writeRegister({ value: '0010 00cc', sim: true });
+
+  try {
+    const result = await handler.exportCfg({
+      type: ['ppg'],
+      sillicon: '7000',
+      otherRegisters: ['0x0010'],
+      sim: true,
+    });
+
+    assert.match(result, /^Success to write dcfg file in /);
+    filePath = result.replace('Success to write dcfg file in ', '');
+    assert.equal(fs.existsSync(filePath), true);
+    const fileContent = fs.readFileSync(filePath, 'utf8');
+    assert.match(fileContent, /^007a 0001$/m);
+    assert.match(fileContent, /^0010 00cc$/m);
+    assert.match(fileContent, /^## Other indvidual registers settings$/m);
+    assert.match(fileContent, /^0x0010 00cc$/m);
+  } finally {
+    if (filePath && fs.existsSync(filePath)) {
+      fs.unlinkSync(filePath);
+    }
+  }
 });

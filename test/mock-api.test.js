@@ -30,6 +30,28 @@ test('mockResponseFor lets PPG config populate routes reach the backend', () => 
   assert.equal(mockResponseFor('/target/populateDIMode', 'POST'), null);
 });
 
+test('mockResponseFor lets PPG config write and export routes reach the backend', () => {
+  assert.equal(mockResponseFor('/target/writeRegister', 'POST'), null);
+  assert.equal(mockResponseFor('/target/writeSampleRate', 'POST'), null);
+  assert.equal(mockResponseFor('/target/writeSampleRateLoop', 'POST'), null);
+  assert.equal(mockResponseFor('/target/writeSlotEnable', 'POST'), null);
+  assert.equal(mockResponseFor('/target/writeCHEnable', 'POST'), null);
+  assert.equal(mockResponseFor('/target/writeTIAGain', 'POST'), null);
+  assert.equal(mockResponseFor('/target/writeDACLEDDC', 'POST'), null);
+  assert.equal(mockResponseFor('/target/writeOperationMode', 'POST'), null);
+  assert.equal(mockResponseFor('/target/writeLedType', 'POST'), null);
+  assert.equal(mockResponseFor('/target/writeLedCurrent', 'POST'), null);
+  assert.equal(mockResponseFor('/target/writePulse', 'POST'), null);
+  assert.equal(mockResponseFor('/target/writeDecimateFactor', 'POST'), null);
+  assert.equal(mockResponseFor('/target/writeSimRegister2Hardware', 'POST'), null);
+  assert.equal(mockResponseFor('/target/AGCOnOff', 'POST'), null);
+  assert.equal(mockResponseFor('/target/AGCSample', 'POST'), null);
+  assert.equal(mockResponseFor('/target/AGCSlotOnOff', 'POST'), null);
+  assert.equal(mockResponseFor('/target/AGCSlotLED', 'POST'), null);
+  assert.equal(mockResponseFor('/target/AGCSlotChannel', 'POST'), null);
+  assert.equal(mockResponseFor('/target/exportCfg', 'POST'), null);
+});
+
 test('buildShimScript includes the preview file bridge for target/loadCfg', () => {
   const script = buildShimScript();
 
@@ -56,4 +78,15 @@ test('buildShimScript passthroughs the PPG populate endpoints', () => {
   assert.match(script, /\/target\/readPPGAFETrimVref/);
   assert.match(script, /\/target\/readLedCurrent/);
   assert.match(script, /\/target\/populateDIMode/);
+});
+
+test('buildShimScript passthroughs the PPG write and export endpoints', () => {
+  const script = buildShimScript();
+
+  assert.match(script, /\/target\/writeSlotEnable/);
+  assert.match(script, /\/target\/writeCHEnable/);
+  assert.match(script, /\/target\/writeTIAGain/);
+  assert.match(script, /\/target\/writeLedCurrent/);
+  assert.match(script, /\/target\/AGCSlotOnOff/);
+  assert.match(script, /\/target\/exportCfg/);
 });
