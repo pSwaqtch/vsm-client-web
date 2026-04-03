@@ -374,6 +374,36 @@ test('backend plot routes return the frontend-compatible empty payload shape', a
   assert.equal(debugState.exportActive, false);
 });
 
+test('backend startPlotReceive parses real hardware-style PPG fifo lines when transport is active', async () => {
+  const transport = {
+    isOpen: () => true,
+    startPlot: async () => true,
+    drainPlotData: () => '[10] fc8022ee,0@755b2,7534b\r[20] bpm:72\r',
+    stopPlot: async () => true,
+    getSillicon: async () => '7000',
+    getVersion: async () => 'fw',
+    getBoard: async () => 'board',
+  };
+  const handler = createBackendHandler({ transport });
+
+  await handler.startPlot({ value: 'app_bringup 4' });
+  const payload = await handler.startPlotReceive({
+    type: ['ppg'],
+    slotList: ['slotA-Channel1', 'slotA-Channel2'],
+    sillicon: '7000',
+  });
+
+  assert.deepEqual(payload.ppg.data, [
+    { ts: 10, 'slotA-Channel1': parseInt('755b2', 16), 'slotA-Channel2': parseInt('7534b', 16) },
+  ]);
+  assert.deepEqual(payload.ppg_filter.data, [
+    { ts: 10, 'slotA-Channel1': parseInt('755b2', 16), 'slotA-Channel2': parseInt('7534b', 16) },
+  ]);
+  assert.deepEqual(payload.ppg_hrm.data, [
+    { ts: 20, 'slotA-Channel1': 72 },
+  ]);
+});
+
 test('backend exportCfg writes a dcfg file from current sim state', async () => {
   const handler = createBackendHandler();
   let filePath = '';

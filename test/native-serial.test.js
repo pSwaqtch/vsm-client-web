@@ -106,3 +106,46 @@ test('native serial transport reset succeeds after writing sw_reset even without
   assert.equal(await transport.reset(), true);
   assert.deepEqual(writes, ['sw_reset\r']);
 });
+
+test('native serial transport captures fifo lines during plot mode and drains them', async () => {
+  const handlers = {};
+  const readStream = {
+    on(name, handler) {
+      handlers[name] = handler;
+    },
+    destroy() {},
+  };
+  const writes = [];
+  const fileHandle = {
+    createReadStream() {
+      return readStream;
+    },
+    async write(value) {
+      writes.push(value);
+    },
+    async close() {},
+  };
+
+  const transport = createNativeSerialTransport({
+    devRoot: '/dev',
+    fsModule: {
+      promises: {
+        readdir: async () => ['cu.usbmodem123'],
+      },
+    },
+    execFile: async () => {},
+    openFile: async () => fileHandle,
+  });
+
+  await transport.init('/dev/cu.usbmodem123');
+  await transport.open();
+  await transport.startPlot('app_bringup 4');
+  handlers.data(Buffer.from('[10] fc8022ee,0@755b2,7534b\n'));
+  handlers.data(Buffer.from('[20] bpm:72\n'));
+
+  assert.equal(transport.drainPlotData(), '[10] fc8022ee,0@755b2,7534b\r[20] bpm:72\r');
+  assert.equal(transport.drainPlotData(), '');
+
+  await transport.stopPlot('app_stop');
+  assert.deepEqual(writes, ['app_bringup 4\r', 'app_stop\r']);
+});

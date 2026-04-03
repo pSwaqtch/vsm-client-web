@@ -162,6 +162,85 @@ function createSyntheticPpgPayload(slotList = [], startTick = 0, pointCount = 96
   return payload;
 }
 
+function parseHardwarePpgPayload(rawData, slotList = [], sillicon = '7000') {
+  const payload = createEmptyPlotPayload();
+  const slots = Array.isArray(slotList) && slotList.length ? slotList : ['slotA-Channel1'];
+  const base = sillicon === '4200' ? 10 : 16;
+  const lines = String(rawData || '')
+    .split('\r')
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  for (const line of lines) {
+    const match = /^\[(\d+)\]\s*(.*)$/i.exec(line);
+    if (!match) {
+      continue;
+    }
+
+    const ts = parseInt(match[1], 10);
+    const remainder = match[2].trim();
+    if (!remainder) {
+      continue;
+    }
+
+    if (remainder.toLowerCase().startsWith('bpm:')) {
+      payload.ppg_hrm.data.push({
+        ts,
+        'slotA-Channel1': parseInt(remainder.slice(4).trim(), 10),
+      });
+      continue;
+    }
+
+    if (remainder.toLowerCase().startsWith('imu:')) {
+      continue;
+    }
+
+    const fifoContent = remainder;
+    const ppgSection = fifoContent.includes('@') ? fifoContent.split('@')[1] : fifoContent.trim();
+    if (!ppgSection || ppgSection.includes('ffffffff')) {
+      continue;
+    }
+
+    const [ppgValuesRaw, spo2Raw] = ppgSection.split('*');
+    const values = ppgValuesRaw.split(',').map((value) => value.trim()).filter(Boolean);
+    const point = { ts };
+    const filteredPoint = { ts };
+
+    slots.forEach((slotName, index) => {
+      if (!values[index]) {
+        return;
+      }
+      const sample = parseInt(values[index], base);
+      if (Number.isNaN(sample)) {
+        return;
+      }
+      point[slotName] = sample;
+      filteredPoint[slotName] = sample;
+    });
+
+    if (Object.keys(point).length > 1) {
+      payload.ppg.data.push(point);
+      payload.ppg_filter.data.push(filteredPoint);
+    }
+
+    if (spo2Raw) {
+      const spo2Values = spo2Raw.split(',').map((value) => value.trim()).filter(Boolean);
+      if (spo2Values.length >= 3) {
+        payload.ppg_spo2.data.push({
+          ts,
+          hrm: parseFloat(spo2Values[0]),
+          rate: parseFloat(spo2Values[1]),
+          spo2: parseFloat(spo2Values[2]),
+          dc1: spo2Values[3] ? parseFloat(spo2Values[3]) : 0,
+          dc2: spo2Values[4] ? parseFloat(spo2Values[4]) : 0,
+        });
+      }
+    }
+  }
+
+  return payload;
+}
+
 function createBackendHandler(options = {}) {
   const simState = createSimState();
   const transport = options.transport || createNativeSerialTransport();
@@ -464,17 +543,28 @@ function createBackendHandler(options = {}) {
     },
 
     async startPlot(args) {
+      const { value = true } = normalizeArgs(args);
       plotActive = true;
       plotTick = 0;
-      return normalizeArgs(args).value || true;
+      if (shouldUseHardware(args) && typeof transport.startPlot === 'function') {
+        await transport.startPlot(value);
+      }
+      return value;
     },
 
     async startPlotReceive(args) {
-      const { type = [], slotList = [] } = normalizeArgs(args);
+      const { type = [], slotList = [], sillicon = simState.getDevice() || DEFAULT_DEVICE } = normalizeArgs(args);
       if (!plotActive) {
         return createEmptyPlotPayload();
       }
       if (Array.isArray(type) && type.includes('ppg')) {
+        if (shouldUseHardware(args) && typeof transport.drainPlotData === 'function') {
+          const rawData = transport.drainPlotData();
+          const payload = parseHardwarePpgPayload(rawData, slotList, sillicon);
+          if (payload.ppg.data.length > 0 || payload.ppg_hrm.data.length > 0 || payload.ppg_spo2.data.length > 0) {
+            return payload;
+          }
+        }
         const payload = createSyntheticPpgPayload(slotList, plotTick);
         plotTick += payload.ppg.data.length;
         return payload;
@@ -482,19 +572,29 @@ function createBackendHandler(options = {}) {
       return createEmptyPlotPayload();
     },
 
-    async stopPlot() {
+    async stopPlot(args) {
       plotActive = false;
       plotTick = 0;
+      const { args: command = 'app_stop' } = normalizeArgs(args);
+      if (shouldUseHardware(args) && typeof transport.stopPlot === 'function') {
+        await transport.stopPlot(command);
+      }
       return true;
     },
 
     async startExportData() {
       exportActive = true;
+      if (typeof transport.startExportData === 'function') {
+        await transport.startExportData();
+      }
       return 'Success to start export data.';
     },
 
     async stopExportData() {
       exportActive = false;
+      if (typeof transport.stopExportData === 'function') {
+        await transport.stopExportData();
+      }
       return [];
     },
 
