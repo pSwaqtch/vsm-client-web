@@ -613,3 +613,31 @@ test('backend records serial-equivalent commands for preview writes', async () =
   assert.match(log[0].commands[0], /^reg_read 0x[0-9a-f]{4}$/);
   assert.match(log[0].commands[1], /^reg_write 0x[0-9a-f]{4} 0x[0-9a-f]{4}$/);
 });
+
+test('backend previewCommandLog includes actual hardware activity when connected', async () => {
+  const hardwareImage = createBackendHandler();
+  const transport = {
+    isOpen: () => true,
+    readRegister: async (value) => {
+      const normalized = String(value).replace(/^0x/i, '').toLowerCase().padStart(4, '0');
+      return hardwareImage.readRegister({ value: normalized, sim: true });
+    },
+    getSillicon: async () => '7000',
+    getVersion: async () => 'fw',
+    getBoard: async () => 'board',
+  };
+  const handler = createBackendHandler({ transport });
+
+  await hardwareImage.reset();
+  await hardwareImage.loadCfg({ filePath: REAL_PPG_DCFG_PATH, sim: true });
+  await handler.selectDevice('7000');
+  await handler.readSlotEnable({ type: 'ppg' });
+
+  const log = await handler.previewCommandLog();
+
+  assert.equal(Array.isArray(log), true);
+  assert.equal(log.length > 0, true);
+  assert.equal(log[0].source, 'hardware');
+  assert.match(log[0].action, /^readSlotEnable \[hardware\]$/);
+  assert.equal(log[0].commands.some((command) => /^reg_read 0x[0-9a-f]{4}$/.test(command)), true);
+});

@@ -382,11 +382,28 @@ function addRegisterAddress(target, field) {
   }
 }
 
+function pushCommandLogEntry(target, action, commands, source = 'preview') {
+  target.unshift({
+    source,
+    action,
+    commands,
+    timestamp: new Date().toISOString(),
+  });
+  if (target.length > 200) {
+    target.length = 200;
+  }
+}
+
+function normalizeRegisterAddress(address) {
+  return `0x${String(address || '').trim().replace(/^0x/i, '').toLowerCase().padStart(4, '0')}`;
+}
+
 function createBackendHandler(options = {}) {
   const simState = createSimState();
   const transport = options.transport || createNativeSerialTransport();
   const DEFAULT_DEVICE = '7000';
   const previewCfgByPath = new Map();
+  const hardwareCommandLog = [];
   const debugState = {
     cachedPreviewPaths: [],
     lastPreviewStore: null,
@@ -419,6 +436,7 @@ function createBackendHandler(options = {}) {
       const registerValue = await transport.readRegister(address);
       await simState.writeRegister(address, `0x${registerValue}`);
     }
+    return uniqueAddresses.map((address) => `reg_read ${normalizeRegisterAddress(address)}`);
   }
 
   function getPpgPopulateRegisterAddresses(kind, args) {
@@ -488,7 +506,10 @@ function createBackendHandler(options = {}) {
     if (!shouldUseHardware(args)) {
       return;
     }
-    await syncRegistersFromHardware(getPpgPopulateRegisterAddresses(kind, args));
+    const commands = await syncRegistersFromHardware(getPpgPopulateRegisterAddresses(kind, args));
+    if (commands.length > 0) {
+      pushCommandLogEntry(hardwareCommandLog, `${kind} [hardware]`, commands, 'hardware');
+    }
   }
 
   async function replayLatestPreviewCommands(beforeCount) {
@@ -501,6 +522,7 @@ function createBackendHandler(options = {}) {
     const latest = simState.getLatestPreviewCommand();
     if (latest && Array.isArray(latest.commands) && latest.commands.length > 0) {
       await transport.executeCommands(latest.commands);
+      pushCommandLogEntry(hardwareCommandLog, latest.action, latest.commands, 'hardware');
     }
   }
 
@@ -950,7 +972,8 @@ function createBackendHandler(options = {}) {
     },
 
     async previewCommandLog() {
-      return simState.getPreviewCommandLog();
+      return [...hardwareCommandLog, ...simState.getPreviewCommandLog()]
+        .sort((left, right) => String(right.timestamp).localeCompare(String(left.timestamp)));
     },
 
     async getVersion() {
