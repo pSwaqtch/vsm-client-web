@@ -663,6 +663,9 @@ function createBackendHandler(options = {}) {
     async exportCfg(args) {
       await ensureSelectedDevice();
       const { type = [], sillicon = simState.getDevice() || DEFAULT_DEVICE, otherRegisters = [] } = normalizeArgs(args);
+      if (shouldUseHardware(args)) {
+        await syncRegistersFromHardware(simState.getRegisterAddresses());
+      }
       const filePath = simState.exportCfgFile(type, sillicon, otherRegisters);
       return `Success to write dcfg file in ${path.resolve(filePath)}`;
     },
@@ -723,12 +726,76 @@ function createBackendHandler(options = {}) {
       return [];
     },
 
-    async ppgFullScale() {
-      return [];
+    async ppgFullScale(args) {
+      const { data, storeList = [], selectedSlotList = [] } = normalizeArgs(args);
+      let constant = 16384 - 8192;
+      if (!data) {
+        throw new Error('Fail to get data');
+      }
+
+      const filteredStoreList = [];
+      const scaleList = [];
+      for (const storeItem of storeList) {
+        for (const selectedSlot of selectedSlotList) {
+          if (selectedSlot === storeItem.slotName) {
+            filteredStoreList.push(storeItem);
+          }
+        }
+      }
+
+      for (const storeItem of filteredStoreList) {
+        if (storeItem.storeName.slot_afe_trim_vref === '11') {
+          constant = 16384 - 3300;
+        }
+        let scaleConstant = constant * storeItem.storeName.slot_num_int_x * storeItem.storeName.slot_num_repeat_x;
+        if (storeItem.storeName.slot_ambient_cancellation === '01') {
+          scaleConstant += 8192;
+        }
+
+        for (const key of Object.keys(data)) {
+          if (key !== storeItem.slotName) {
+            continue;
+          }
+          scaleList.push({
+            slotName: storeItem.slotName,
+            scale: (
+              storeItem.storeName.slot_operation_mode === 'two'
+                ? (data[storeItem.slotName] / (scaleConstant * 2)) * 100
+                : (data[storeItem.slotName] / scaleConstant) * 100
+            ).toFixed(1),
+          });
+        }
+      }
+
+      return scaleList;
     },
 
     async ppgSmoothProcess(args) {
-      const { data = [] } = normalizeArgs(args);
+      const { data = [], count = [], ppgSlotList = [] } = normalizeArgs(args);
+      const temp = [];
+      let slotAverage = 0;
+      let sum = 0;
+
+      for (let slotIndex = 0; slotIndex < ppgSlotList.length; slotIndex += 1) {
+        for (let pointIndex = 0; pointIndex < count.length; pointIndex += 1) {
+          slotAverage += Object.values(data[count[pointIndex] - 1])[slotIndex + 1] * count[pointIndex];
+          sum += count[pointIndex];
+        }
+        slotAverage /= sum;
+        temp.push(slotAverage);
+        sum = 0;
+        slotAverage = 0;
+      }
+
+      for (let slotIndex = 0; slotIndex < ppgSlotList.length; slotIndex += 1) {
+        for (let rowIndex = 0; rowIndex < data.length; rowIndex += 1) {
+          data[rowIndex][ppgSlotList[slotIndex]] = temp[slotIndex];
+        }
+      }
+
+      if (data === '' || data === undefined) {
+        throw new Error('error!');
+      }
       return { data };
     },
 

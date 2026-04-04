@@ -426,8 +426,31 @@ test('backend plot routes return the frontend-compatible empty payload shape', a
   assert.equal(await handler.stopPlot({}), true);
   assert.equal(await handler.startExportData({}), 'Success to start export data.');
   assert.deepEqual(await handler.stopExportData({}), []);
-  assert.deepEqual(await handler.ppgFullScale({}), []);
-  assert.deepEqual(await handler.ppgSmoothProcess({ data: [{ slotA: 1 }] }), { data: [{ slotA: 1 }] });
+  assert.deepEqual(
+    await handler.ppgFullScale({
+      data: { 'slotA-Channel1': 1000 },
+      storeList: [{
+        slotName: 'slotA-Channel1',
+        storeName: {
+          slot_afe_trim_vref: '01',
+          slot_num_int_x: 1,
+          slot_num_repeat_x: 1,
+          slot_ambient_cancellation: '00',
+          slot_operation_mode: 'normal',
+        },
+      }],
+      selectedSlotList: ['slotA-Channel1'],
+    }),
+    [{ slotName: 'slotA-Channel1', scale: '12.2' }],
+  );
+  assert.deepEqual(
+    await handler.ppgSmoothProcess({
+      data: [{ ts: 1, 'slotA-Channel1': 10 }, { ts: 2, 'slotA-Channel1': 20 }],
+      count: [1, 2],
+      ppgSlotList: ['slotA-Channel1'],
+    }),
+    { data: [{ ts: 1, 'slotA-Channel1': 50 / 3 }, { ts: 2, 'slotA-Channel1': 50 / 3 }] },
+  );
 
   const debugState = await handler.debugPreviewState();
   assert.equal(debugState.plotActive, false);
@@ -493,6 +516,39 @@ test('backend exportCfg writes a dcfg file from current sim state', async () => 
       fs.unlinkSync(filePath);
     }
   }
+});
+
+test('backend exportCfg syncs live hardware registers before writing the file', async () => {
+  const hardwareImage = createBackendHandler();
+  const reads = [];
+  const transport = {
+    isOpen: () => true,
+    readRegister: async (value) => {
+      const normalized = String(value).replace(/^0x/i, '').toLowerCase().padStart(4, '0');
+      reads.push(normalized);
+      return hardwareImage.readRegister({ value: normalized, sim: true });
+    },
+    getSillicon: async () => '7000',
+    getVersion: async () => 'fw',
+    getBoard: async () => 'board',
+  };
+  const handler = createBackendHandler({ transport });
+
+  await hardwareImage.reset();
+  await hardwareImage.loadCfg({ filePath: REAL_PPG_DCFG_PATH, sim: true });
+  await hardwareImage.writeRegister({ value: '0010 00dd', sim: true });
+  await handler.selectDevice('7000');
+
+  const result = await handler.exportCfg({
+    type: ['ppg'],
+    sillicon: '7000',
+    otherRegisters: ['0x0010'],
+  });
+
+  const filePath = result.replace('Success to write dcfg file in ', '');
+  const fileContent = fs.readFileSync(filePath, 'utf8');
+  assert.match(fileContent, /^0010 00dd$/m);
+  assert.equal(reads.length > 0, true);
 });
 
 test('backend records serial-equivalent commands for preview writes', async () => {
