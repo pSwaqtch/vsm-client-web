@@ -551,6 +551,51 @@ test('backend exportCfg syncs live hardware registers before writing the file', 
   assert.equal(reads.length > 0, true);
 });
 
+test('backend startExportData and stopExportData export live PPG fifo data to files', async () => {
+  let started = 0;
+  let stopped = 0;
+  const transport = {
+    isOpen: () => true,
+    startExportData: async () => {
+      started += 1;
+      return true;
+    },
+    drainExportData: () => '[10] fc8022ee,0@755b2,7534b*72,75,98,1.2,1.3\r[20] imu:1,2,3,4,5,6\r',
+    stopExportData: async () => {
+      stopped += 1;
+      return true;
+    },
+    getSillicon: async () => '7000',
+    getVersion: async () => 'fw',
+    getBoard: async () => 'board',
+  };
+  const handler = createBackendHandler({ transport });
+
+  await handler.selectDevice('7000');
+  assert.equal(await handler.startExportData({}), 'Success to start export data.');
+
+  const result = await handler.stopExportData({
+    sillicon: '7000',
+    deviceType: ['ppg'],
+    ppgSlotList: ['slotA-Channel1', 'slotA-Channel2'],
+    spo2Enable: true,
+    imuEnable: true,
+  });
+
+  assert.equal(started, 1);
+  assert.equal(stopped, 1);
+  assert.match(result, /^Success to export data in\r\n/);
+
+  const outputPaths = result.replace('Success to export data in\r\n', '').split('\r\n');
+  assert.equal(outputPaths.length, 2);
+  const ppgCsv = fs.readFileSync(outputPaths[0], 'utf8');
+  const imuCsv = fs.readFileSync(outputPaths[1], 'utf8');
+  assert.match(ppgCsv, /^timestamp,slotA-Channel1,slotA-Channel2,HRM,Rate,Spo2,DC1,DC2$/m);
+  assert.match(ppgCsv, /^10,480690,480075,72,75,98,1.2,1.3$/m);
+  assert.match(imuCsv, /^timestamp,ax,ay,az,gx,gy,gz$/m);
+  assert.match(imuCsv, /^20,1,2,3,4,5,6$/m);
+});
+
 test('backend records serial-equivalent commands for preview writes', async () => {
   const handler = createBackendHandler();
 

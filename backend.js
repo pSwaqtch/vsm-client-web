@@ -241,6 +241,137 @@ function parseHardwarePpgPayload(rawData, slotList = [], sillicon = '7000') {
   return payload;
 }
 
+function timestampSuffix() {
+  const now = new Date();
+  const pad = (value) => String(value).padStart(2, '0');
+  return `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
+}
+
+function csvEscape(value) {
+  const text = String(value ?? '');
+  if (!/[",\r\n]/.test(text)) {
+    return text;
+  }
+  return `"${text.replace(/"/g, '""')}"`;
+}
+
+function toCsv(headers, rows) {
+  const lines = [headers.map(csvEscape).join(',')];
+  for (const row of rows) {
+    lines.push(row.map(csvEscape).join(','));
+  }
+  return lines.join('\n') + '\n';
+}
+
+function parsePpgExportArtifacts(rawData, options = {}) {
+  const {
+    sillicon = '7000',
+    ppgSlotList = [],
+    imuEnable = false,
+    spo2Enable = false,
+  } = options;
+  const base = sillicon === '4200' ? 10 : 16;
+  const slotNames = Array.isArray(ppgSlotList) && ppgSlotList.length ? ppgSlotList : ['slotA-Channel1'];
+  const mainRows = [];
+  const imuRows = [];
+  const hrmRows = [];
+  const lines = String(rawData || '')
+    .split('\r')
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  for (const line of lines) {
+    const match = /^\[(\d+)\]\s*(.*)$/i.exec(line);
+    if (!match) {
+      continue;
+    }
+    const ts = parseInt(match[1], 10);
+    const remainder = match[2].trim();
+    if (!remainder) {
+      continue;
+    }
+
+    if (remainder.toLowerCase().startsWith('imu:')) {
+      if (imuEnable) {
+        const values = remainder.slice(4).split(',').map((value) => value.trim());
+        imuRows.push([ts, ...values]);
+      }
+      continue;
+    }
+
+    if (remainder.toLowerCase().startsWith('bpm:')) {
+      hrmRows.push([ts, remainder.slice(4).trim()]);
+      continue;
+    }
+
+    const ppgSection = remainder.includes('@') ? remainder.split('@')[1] : remainder;
+    if (!ppgSection || ppgSection.includes('ffffffff')) {
+      continue;
+    }
+
+    const [ppgValuesRaw, spo2Raw] = ppgSection.split('*');
+    const values = ppgValuesRaw.split(',').map((value) => value.trim()).filter(Boolean);
+    const row = [ts];
+
+    for (let index = 0; index < slotNames.length; index += 1) {
+      const sample = values[index] ? parseInt(values[index], base) : '';
+      row.push(Number.isNaN(sample) ? '' : sample);
+    }
+
+    if (spo2Enable) {
+      const spo2Values = spo2Raw ? spo2Raw.split(',').map((value) => value.trim()) : [];
+      row.push(
+        spo2Values[0] ?? '',
+        spo2Values[1] ?? '',
+        spo2Values[2] ?? '',
+        spo2Values[3] ?? '',
+        spo2Values[4] ?? '',
+      );
+    }
+
+    mainRows.push(row);
+  }
+
+  return {
+    mainHeaders: ['timestamp', ...slotNames, ...(spo2Enable ? ['HRM', 'Rate', 'Spo2', 'DC1', 'DC2'] : [])],
+    mainRows,
+    imuHeaders: ['timestamp', 'ax', 'ay', 'az', 'gx', 'gy', 'gz'],
+    imuRows,
+    hrmHeaders: ['timestamp', 'HRM'],
+    hrmRows,
+  };
+}
+
+function writePpgExportArtifacts(artifacts, options = {}) {
+  const {
+    exportDir,
+    sillicon = '7000',
+  } = options;
+  fs.mkdirSync(exportDir, { recursive: true });
+  const suffix = timestampSuffix();
+  const outputPaths = [];
+
+  if (artifacts.mainRows.length > 0) {
+    const mainPath = path.join(exportDir, `anonymous_${sillicon}_ppg_${suffix}.csv`);
+    fs.writeFileSync(mainPath, toCsv(artifacts.mainHeaders, artifacts.mainRows), 'utf8');
+    outputPaths.push(path.resolve(mainPath));
+  }
+
+  if (artifacts.imuRows.length > 0) {
+    const imuPath = path.join(exportDir, `anonymous_${sillicon}_ppg_imu_${suffix}.csv`);
+    fs.writeFileSync(imuPath, toCsv(artifacts.imuHeaders, artifacts.imuRows), 'utf8');
+    outputPaths.push(path.resolve(imuPath));
+  }
+
+  if (artifacts.mainRows.length === 0 && artifacts.hrmRows.length > 0) {
+    const hrmPath = path.join(exportDir, `anonymous_${sillicon}_hrm_${suffix}.csv`);
+    fs.writeFileSync(hrmPath, toCsv(artifacts.hrmHeaders, artifacts.hrmRows), 'utf8');
+    outputPaths.push(path.resolve(hrmPath));
+  }
+
+  return outputPaths;
+}
+
 function addRegisterAddress(target, field) {
   if (!field || !field.Address) {
     return;
@@ -710,18 +841,37 @@ function createBackendHandler(options = {}) {
       return true;
     },
 
-    async startExportData() {
+    async startExportData(args) {
       exportActive = true;
-      if (typeof transport.startExportData === 'function') {
+      if (shouldUseHardware(args) && typeof transport.startExportData === 'function') {
         await transport.startExportData();
       }
       return 'Success to start export data.';
     },
 
-    async stopExportData() {
+    async stopExportData(args) {
       exportActive = false;
-      if (typeof transport.stopExportData === 'function') {
+      if (shouldUseHardware(args) && typeof transport.stopExportData === 'function') {
+        const normalized = normalizeArgs(args);
+        const rawData = typeof transport.drainExportData === 'function' ? transport.drainExportData() : '';
         await transport.stopExportData();
+        const deviceTypes = normalized.deviceType || [];
+        if (!String(rawData || '').trim()) {
+          throw new Error('Fail to export data!');
+        }
+        if (!Array.isArray(deviceTypes) || !deviceTypes.includes('ppg')) {
+          throw new Error('Export is only implemented for PPG in mac-preview');
+        }
+
+        const artifacts = parsePpgExportArtifacts(rawData, normalized);
+        const outputPaths = writePpgExportArtifacts(artifacts, {
+          exportDir: path.join(__dirname, 'exports'),
+          sillicon: normalized.sillicon || simState.getDevice() || DEFAULT_DEVICE,
+        });
+        if (outputPaths.length === 0) {
+          throw new Error('Fail to export data!');
+        }
+        return `Success to export data in\r\n${outputPaths.join('\r\n')}`;
       }
       return [];
     },
