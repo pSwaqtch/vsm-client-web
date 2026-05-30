@@ -1,0 +1,14 @@
+{
+  "name": "vsm-client-web",
+  "version": "0.1.0",
+  "description": "Browser preview for the VSM Client on macOS — serial port access without Electron",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "os": ["darwin"],
+  "license": "MIT"
+}
